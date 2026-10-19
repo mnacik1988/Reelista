@@ -251,7 +251,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 <div class="toast" id="toast" hidden></div>
 
 <script>
-var APP_VERSION = '0.3.0';
+var APP_VERSION = '0.3.1';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -307,9 +307,9 @@ function store(k, v) {
   } catch (e) { return null; }
 }
 var toastTimer;
-function toast(msg) {
+function toast(msg, ms) {
   var t = $('toast'); t.textContent = msg; t.hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 6000);
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, ms || 6000);
 }
 
 document.title = BRAND;
@@ -351,14 +351,21 @@ function loadFiles(files, replace) {
     if (i >= files.length) return Promise.resolve();
     var f = files[i++];
     $('busy-text').textContent = 'Слушаю паузы…' + (files.length > 1 ? ' ' + i + ' из ' + files.length : '');
-    return f.arrayBuffer().then(decodeAudio).then(function (ab) {
-      var c = { id: ++clipSeq, name: f.name || ('Ролик ' + clipSeq), url: URL.createObjectURL(f), words: null };
-      analyseClip(c, ab);
-      c.pcm = to16k(ab);        // звук для распознавания: 16 кГц моно, ~2 МБ на минуту
-      S.clips.push(c);
+    var label = '«' + (f.name || 'видео') + '» (' + Math.round(f.size / 1048576) + ' МБ)';
+    return readAudio(f).then(function (ab) {
+      try {
+        var c = { id: ++clipSeq, name: f.name || ('Ролик ' + clipSeq), url: URL.createObjectURL(f), words: null };
+        analyseClip(c, ab);
+        c.pcm = to16k(ab);        // звук для распознавания: 16 кГц моно, ~2 МБ на минуту
+        S.clips.push(c);
+      } catch (e) {
+        console.error(e);
+        toast('Не хватило памяти на ' + label + ': ' + errText(e) + '. Пропускаю его.', 12000);
+      }
     }, function (e) {
       console.error(e);
-      toast('Не получилось прочитать звук из «' + (f.name || 'видео') + '» — пропускаю его.');
+      // Показываем настоящую причину — без неё на телефоне не понять, что сломалось.
+      toast('Не получилось прочитать звук из ' + label + ': ' + errText(e) + '. Пропускаю его.', 12000);
     }).then(next);
   }
   return next().then(function () {
@@ -370,15 +377,43 @@ function loadFiles(files, replace) {
   });
 }
 
-function decodeAudio(buf) {
-  var AC = window.AudioContext || window.webkitAudioContext;
-  var ctx = new AC();
+function errText(e) {
+  if (!e) return 'неизвестная ошибка';
+  return ((e.name && e.name !== 'Error' ? e.name : '') + (e.message ? (e.name && e.name !== 'Error' ? ': ' : '') + e.message : '')) || String(e);
+}
+
+function decodeWith(ctx, buf) {
   return new Promise(function (res, rej) {
     // Старый Safari понимает только колбэки, новый — промис; поддерживаем оба.
     var p = ctx.decodeAudioData(buf, res, function (e) { rej(e || new Error('decode')); });
     if (p && p.then) p.then(res, rej);
-  }).then(function (a) { try { ctx.close(); } catch (e) {} return a; },
-          function (e) { try { ctx.close(); } catch (x) {} throw e; });
+  });
+}
+
+// Раньше на КАЖДЫЙ файл создавался свой AudioContext, а iOS держит их одновременно лишь несколько —
+// на нескольких дублях разбор звука падал. Теперь один общий «тихий» OfflineAudioContext:
+// он не занимает звук телефона и живёт всё время.
+var DEC = null;
+function decoderCtx() {
+  if (!DEC) {
+    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    try { DEC = new OAC(1, 1, 44100); } catch (e) { DEC = null; }
+  }
+  return DEC;
+}
+function readAudio(f) {
+  return f.arrayBuffer().then(function (buf) {
+    var ctx = decoderCtx();
+    if (!ctx) throw new Error('no offline context');
+    return decodeWith(ctx, buf);
+  }).catch(function (first) {
+    // Запасной путь — обычный AudioContext. Файл читаем заново: декодер «забирает» буфер себе.
+    console.warn('offline decode failed', first);
+    var AC = window.AudioContext || window.webkitAudioContext, ctx = new AC();
+    function close() { try { ctx.close(); } catch (x) {} }
+    return f.arrayBuffer().then(function (buf) { return decodeWith(ctx, buf); })
+      .then(function (a) { close(); return a; }, function (e) { close(); throw e; });
+  });
 }
 
 // Громкость каждые 10 мс; порог «тишина/речь» у КАЖДОГО ролика свой — дубли могли сниматься в разном шуме.
