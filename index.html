@@ -266,7 +266,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.4.0';
+var APP_VERSION = '0.4.1';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -1372,12 +1372,15 @@ function startExport() {
   // Сначала покадровая сборка (WebCodecs): без потерь кадров и обычно быстрее реального времени.
   // Не умеет телефон или споткнулась — «живая» сборка, как раньше.
   X.mode = 'frames';
+  X.how = '';
   runExportFrames().catch(function (e) {
     if (e && e.message === 'cancel') throw e;
-    if (!(e && e.unsupported)) {
-      console.warn('покадровая сборка не удалась', e);
-      toast('Покадровая сборка не удалась (' + errText(e) + ') — собираю обычным способом.', 10000);
-    }
+    // Причину показываем ВСЕГДА: «живая» сборка в Safari растягивает ролик и теряет кадры,
+    // так что молча на неё переходить нельзя (в 0.4.0 iPhone так и делал, а мы не видели почему).
+    console.warn('покадровая сборка не удалась', e);
+    toast((e && e.unsupported ? 'Покадровая сборка недоступна: ' : 'Покадровая сборка не удалась: ') + errText(e) +
+          '. Собираю обычным способом — ролик может выйти рваным.', 15000);
+    X.how = 'обычная (' + errText(e) + ')';
     X.mode = 'live'; X.stage = 'подготовка'; setProgress(0);
     $('xstage').classList.remove('frames');
     return ready.then(function () { return runExport(src); });
@@ -1538,8 +1541,15 @@ function clipAudio(c, rate) {
   });
 }
 
+// Сборка подстраивается под телефон — у Safari WebCodecs появлялись по частям:
+//   картинка: аппаратный декодер (VideoDecoder) → если не читает формат (HEVC с iPhone),
+//             кадры из плеера: играем в половину скорости, каждый показанный кадр берём с ЕГО
+//             временем в видео (requestVideoFrameCallback) — без рывков и растяжения;
+//   звук:     сжатие заново (AudioEncoder) → если его нет (появился в Safari недавно),
+//             копируем готовые кусочки AAC из файла (склейка с точностью ~21 мс).
+// Обязателен только кодировщик картинки (VideoEncoder, Safari 16.4+).
 async function runExportFrames() {
-  if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') throw unsupported('нет WebCodecs');
+  if (typeof VideoEncoder === 'undefined') throw unsupported('в этой версии Safari нет VideoEncoder — обновите iOS');
   X.stage = 'загрузка модуля сборки';
   var M = await loadMediabunny();
   var inputs = new Map();
@@ -1547,89 +1557,202 @@ async function runExportFrames() {
     if (!inputs.has(c)) inputs.set(c, new M.Input({ source: new M.BlobSource(c.file), formats: M.ALL_FORMATS }));
     return inputs.get(c);
   }
-  // Проверяем ДО начала, что телефон умеет и прочитать каждый ролик, и записать результат.
-  X.stage = 'проверка роликов';
-  var used = S.clips.filter(function (c) { return S.segs.some(function (s) { return s.clip === c; }); });
-  var tracks = new Map();
-  for (var c of used) {
-    var vt = await inputOf(c).getPrimaryVideoTrack();
-    if (!vt) throw unsupported('в ролике нет видео');
-    if (!(await vt.canDecode())) throw unsupported('телефон не декодирует ' + (await vt.getCodecParameterString() || 'это видео'));
-    tracks.set(c, vt);
-  }
-  var first = tracks.get(S.segs[0].clip);
-  var k = Math.min(1, 1920 / Math.max(first.displayWidth, first.displayHeight));
-  var W = Math.round(first.displayWidth * k / 2) * 2, H = Math.round(first.displayHeight * k / 2) * 2;
-  if (!(await M.canEncodeVideo('avc', { width: W, height: H }))) throw unsupported('телефон не кодирует H.264 ' + W + '×' + H);
-  var RATE = 48000, CH = 2;
-  if (!(await M.canEncodeAudio('aac', { numberOfChannels: CH, sampleRate: RATE }))) throw unsupported('телефон не кодирует AAC');
+  // Декодеры и файлы держат аппаратные ресурсы iPhone — освобождаем всегда, иначе обычный
+  // плеер потом не может даже перемотать («seeked timeout» в 0.4.0).
+  function release() { inputs.forEach(function (inp) { try { inp.dispose(); } catch (e) {} }); inputs.clear(); }
 
-  var cv = X.cv || (X.cv = document.createElement('canvas'));
-  cv.width = W; cv.height = H;
-  var g = cv.getContext('2d');
-  if (!g) throw new Error('телефон не выделил память под кадр ' + W + '×' + H);
-  // Превью на экране «Сборка» — сам собираемый кадр.
-  $('xstage').classList.add('frames');
-  if (cv.parentNode !== $('xstage')) $('xstage').appendChild(cv);
-
-  var output = new M.Output({ format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new M.BufferTarget() });
-  var vsrc = new M.CanvasSource(cv, { codec: 'avc', quality: M.QUALITY_HIGH, keyFrameInterval: 1 });
-  var asrc = new M.AudioBufferSource({ codec: 'aac', quality: M.QUALITY_HIGH });
-  output.addVideoTrack(vsrc);
-  output.addAudioTrack(asrc);
-  await output.start();
-
-  var total = keptLength(), outT = 0, frames = 0;
   try {
-    for (var i = 0; i < S.segs.length; i++) {
-      var sg = S.segs[i];
-      X.stage = 'кадры (кусок ' + (i + 1) + ' из ' + S.segs.length + ')';
-      var sink = new M.VideoSampleSink(tracks.get(sg.clip));
-      for await (var s of sink.samples(sg.a, sg.b)) {
-        if (X.cancel) { s.close(); throw new Error('cancel'); }
-        var st = Math.max(s.timestamp, sg.a), en = Math.min(s.timestamp + s.duration, sg.b);
-        if (en - st < 0.0005) { s.close(); continue; }
-        g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-        s.drawWithFit(g, { fit: 'cover' });           // поворот видео с iPhone учитывается сам
-        s.close();
-        drawSubs(g, W, H, sg.clip.offset + st);
-        await vsrc.add(outT + (st - sg.a), en - st);
-        frames++;
-        setProgress(0.9 * (outT + en - sg.a) / total);
-      }
-      outT += sg.b - sg.a;
+    // Проверяем ДО начала, что и как телефон умеет.
+    X.stage = 'проверка роликов';
+    var used = S.clips.filter(function (c) { return S.segs.some(function (s) { return s.clip === c; }); });
+    var vtracks = new Map(), atracks = new Map(), viaDecoder = typeof VideoDecoder !== 'undefined';
+    for (var c of used) {
+      var vt = await inputOf(c).getPrimaryVideoTrack(), at = await inputOf(c).getPrimaryAudioTrack();
+      if (!vt) throw unsupported('в ролике «' + c.name + '» нет видео');
+      if (!at) throw unsupported('в ролике «' + c.name + '» нет звука');
+      if (viaDecoder && !(await vt.canDecode())) viaDecoder = false;
+      vtracks.set(c, vt); atracks.set(c, at);
     }
+    if (X.force && X.force.player) viaDecoder = false;            // для проверки запасных путей из консоли
+    if (!viaDecoder && !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) throw unsupported('телефон не умеет читать кадры видео');
 
-    // Звук: склеиваем нужные куски в один буфер, на стыках — мягкие 10 мс, чтобы не щёлкало.
-    X.stage = 'звук';
-    var audio = new Map();
-    for (var c2 of used) audio.set(c2, await clipAudio(c2, RATE));
-    var actx = decoderCtx() || new (window.AudioContext || window.webkitAudioContext)();
-    var len = Math.round(total * RATE), buf = actx.createBuffer(CH, len, RATE), fade = Math.round(0.01 * RATE), pos = 0;
-    S.segs.forEach(function (sg2, si) {
-      var src = audio.get(sg2.clip), from = Math.round(sg2.a * RATE), n = Math.min(Math.round((sg2.b - sg2.a) * RATE), len - pos);
-      for (var ch = 0; ch < CH; ch++) {
-        var d = src[Math.min(ch, src.length - 1)], out = buf.getChannelData(ch);
-        for (var j = 0; j < n; j++) {
-          var gain = 1;
-          if (si > 0 && j < fade) gain = j / fade;
-          if (si < S.segs.length - 1 && n - j <= fade) gain = Math.min(gain, (n - j) / fade);
-          out[pos + j] = (d[from + j] || 0) * gain;
+    var first = vtracks.get(S.segs[0].clip), W, H, sizeOk = false;
+    for (var side of [1920, 1280]) {                  // 1080p, а если кодировщик не тянет — 720p
+      var k = Math.min(1, side / Math.max(first.displayWidth, first.displayHeight));
+      W = Math.round(first.displayWidth * k / 2) * 2; H = Math.round(first.displayHeight * k / 2) * 2;
+      if (await M.canEncodeVideo('avc', { width: W, height: H })) { sizeOk = true; break; }
+    }
+    if (!sizeOk) throw unsupported('телефон не кодирует H.264');
+
+    var RATE = 48000, CH = 2, audioEncode = !(X.force && X.force.copyAudio) && await M.canEncodeAudio('aac', { numberOfChannels: CH, sampleRate: RATE });
+    var audioCfg = null;
+    if (!audioEncode) {
+      // Копировать кусочки можно, только если звук во всех роликах одинаковый AAC.
+      for (var c3 of used) {
+        var a3 = atracks.get(c3);
+        if ((await a3.getCodec()) !== 'aac') throw unsupported('звук не AAC, а сжимать звук этот Safari не умеет');
+        var cfg = await a3.getDecoderConfig();
+        if (audioCfg && (cfg.sampleRate !== audioCfg.sampleRate || cfg.numberOfChannels !== audioCfg.numberOfChannels)) {
+          throw unsupported('у роликов разный звук, а сжимать звук этот Safari не умеет');
         }
+        audioCfg = audioCfg || cfg;
       }
-      pos += n;
-    });
-    await asrc.add(buf);
-    setProgress(0.97);
+    }
+    X.how = (viaDecoder ? 'кадры: декодер' : 'кадры: плеер') + ', звук: ' + (audioEncode ? 'сжатие' : 'копия');
 
-    X.stage = 'запись файла';
-    await output.finalize();
-  } catch (e) {
-    try { await output.cancel(); } catch (x) {}
-    throw e;
+    var cv = X.cv || (X.cv = document.createElement('canvas'));
+    cv.width = W; cv.height = H;
+    var g = cv.getContext('2d');
+    if (!g) throw new Error('телефон не выделил память под кадр ' + W + '×' + H);
+    // Превью на экране «Сборка» — сам собираемый кадр.
+    $('xstage').classList.add('frames');
+    if (cv.parentNode !== $('xstage')) $('xstage').appendChild(cv);
+
+    var output = new M.Output({ format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new M.BufferTarget() });
+    var vsrc = new M.CanvasSource(cv, { codec: 'avc', quality: M.QUALITY_HIGH, keyFrameInterval: 1 });
+    var asrc = audioEncode ? new M.AudioBufferSource({ codec: 'aac', quality: M.QUALITY_HIGH }) : new M.EncodedAudioPacketSource('aac');
+    output.addVideoTrack(vsrc);
+    output.addAudioTrack(asrc);
+    await output.start();
+
+    var total = keptLength(), outT = 0, frames = 0;
+    try {
+      for (var i = 0; i < S.segs.length; i++) {
+        var sg = S.segs[i], base = outT;
+        X.stage = 'кадры (кусок ' + (i + 1) + ' из ' + S.segs.length + ')';
+        var addFrame = function (t, dur, draw) {   // t — время кадра в исходном ролике
+          var st = Math.max(t, sg.a);
+          g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+          draw();
+          drawSubs(g, W, H, sg.clip.offset + st);
+          frames++;
+          setProgress(0.9 * (base + Math.min(sg.b, st + dur) - sg.a) / total);
+          return vsrc.add(base + (st - sg.a), Math.max(0.001, Math.min(dur, sg.b - st)));
+        };
+        if (viaDecoder) {
+          var sink = new M.VideoSampleSink(vtracks.get(sg.clip));
+          for await (var s of sink.samples(sg.a, sg.b)) {
+            if (X.cancel) { s.close(); throw new Error('cancel'); }
+            if (Math.min(s.timestamp + s.duration, sg.b) - Math.max(s.timestamp, sg.a) < 0.0005) { s.close(); continue; }
+            await addFrame(s.timestamp, s.timestamp + s.duration - Math.max(s.timestamp, sg.a), function () {
+              s.drawWithFit(g, { fit: 'cover' });     // поворот видео с iPhone учитывается сам
+            });
+            s.close();
+          }
+        } else {
+          await playerFrames($('xvideo'), sg, function (t) {
+            return addFrame(t, 1 / 30, function () { drawFit(g, $('xvideo'), W, H); });
+          });
+        }
+        outT += sg.b - sg.a;
+      }
+
+      X.stage = 'звук';
+      if (audioEncode) await asrc.add(await mixAudio(used, total, RATE, CH));
+      else await copyAudio(M, asrc, atracks, audioCfg);
+      setProgress(0.97);
+
+      X.stage = 'запись файла';
+      await output.finalize();
+    } catch (e) {
+      try { await output.cancel(); } catch (x) {}
+      throw e;
+    }
+    X.vframes = frames;
+    return new Blob([output.target.buffer], { type: 'video/mp4' });
+  } finally {
+    release();
   }
-  X.vframes = frames;
-  return new Blob([output.target.buffer], { type: 'video/mp4' });
+}
+
+// Звук для сжатия: склеиваем нужные куски в один буфер, на стыках — мягкие 10 мс, чтобы не щёлкало.
+async function mixAudio(used, total, RATE, CH) {
+  var audio = new Map();
+  for (var c of used) audio.set(c, await clipAudio(c, RATE));
+  var actx = decoderCtx() || new (window.AudioContext || window.webkitAudioContext)();
+  var len = Math.round(total * RATE), buf = actx.createBuffer(CH, len, RATE), fade = Math.round(0.01 * RATE), pos = 0;
+  S.segs.forEach(function (sg, si) {
+    var src = audio.get(sg.clip), from = Math.round(sg.a * RATE), n = Math.min(Math.round((sg.b - sg.a) * RATE), len - pos);
+    for (var ch = 0; ch < CH; ch++) {
+      var d = src[Math.min(ch, src.length - 1)], out = buf.getChannelData(ch);
+      for (var j = 0; j < n; j++) {
+        var gain = 1;
+        if (si > 0 && j < fade) gain = j / fade;
+        if (si < S.segs.length - 1 && n - j <= fade) gain = Math.min(gain, (n - j) / fade);
+        out[pos + j] = (d[from + j] || 0) * gain;
+      }
+    }
+    pos += n;
+  });
+  return buf;
+}
+
+// Звук без сжатия: перекладываем готовые кусочки AAC (по ~21 мс) нужных отрезков подряд.
+// Кусочек берём, если его середина внутри отрезка, — так ошибка на стыке не больше половины кусочка.
+async function copyAudio(M, asrc, atracks, cfg) {
+  var outT = 0, firstPacket = true, lastEnd = 0;
+  for (var i = 0; i < S.segs.length; i++) {
+    var sg = S.segs[i], sink = new M.EncodedPacketSink(atracks.get(sg.clip));
+    var start = (await sink.getPacket(sg.a)) || (await sink.getFirstPacket());
+    if (start) {
+      for await (var p of sink.packets(start)) {
+        if (X.cancel) throw new Error('cancel');
+        if (p.timestamp >= sg.b) break;
+        if (p.timestamp + p.duration / 2 < sg.a || p.timestamp + p.duration / 2 >= sg.b) continue;
+        var ts = Math.max(lastEnd, outT + (p.timestamp - sg.a));
+        await asrc.add(p.clone({ timestamp: ts }), firstPacket ? { decoderConfig: cfg } : undefined);
+        firstPacket = false;
+        lastEnd = ts + p.duration;
+      }
+    }
+    outT += sg.b - sg.a;
+  }
+}
+
+// Кадры из плеера (если аппаратный декодер не читает формат). Играем кусок в половину скорости
+// без звука и на КАЖДЫЙ показанный кадр берём его точное время в видео — поэтому даже если
+// телефон пропустит кадр, рывка во времени не будет, а лишних секунд не появится.
+// Если requestVideoFrameCallback молчит (страница в фоне, капризы Safari), опрашиваем currentTime
+// таймером — время кадра всё равно из видео, не из часов, поэтому ролик не растягивается.
+function playerFrames(el, sg, onFrame) {
+  return new Promise(function (res, rej) {
+    var finished = false, last = -1, chain = Promise.resolve(), lastMove = Date.now(), lastT = -1, lastRVFC = 0, poll;
+    function finish(err) {
+      if (finished) return;
+      finished = true; clearInterval(poll); el.pause();
+      chain.then(function () { if (err) rej(err); else res(); }, rej);
+    }
+    function take(t) {
+      if (finished) return;
+      if (X.cancel) return finish(new Error('cancel'));
+      if (t >= sg.b - 0.001) return finish();
+      if (t >= sg.a - 0.02 && t > last + 0.001) {
+        last = t;
+        // Рисуем СРАЗУ, пока этот кадр на экране; кодирование догоняет в своей очереди.
+        var p = onFrame(t);
+        chain = chain.then(function () { return p; });
+      }
+    }
+    function onVideoFrame(now, meta) {
+      if (finished) return;
+      lastRVFC = Date.now();
+      take(meta.mediaTime);
+      el.requestVideoFrameCallback(onVideoFrame);
+    }
+    el.muted = true; el.playbackRate = 0.5;
+    loadInto(el, sg.clip).then(function () { return seek(el, sg.a); }).then(function () {
+      if (el.requestVideoFrameCallback) el.requestVideoFrameCallback(onVideoFrame);
+      el.addEventListener('ended', function onEnd() { el.removeEventListener('ended', onEnd); finish(); });
+      poll = setInterval(function () {
+        var t = el.currentTime;
+        if (t !== lastT) { lastT = t; lastMove = Date.now(); }
+        else if (Date.now() - lastMove > 6000) return finish(new Error('видео перестало играть'));
+        if (Date.now() - lastRVFC > 250 && t > last + 1 / 40) take(t);
+        if (t >= sg.b - 0.001) finish();
+      }, 15);
+      return playSafe(el);
+    }).catch(finish);
+  }).finally(function () { el.muted = false; el.playbackRate = 1; });
 }
 
 function finishExport(blob) {
@@ -1642,7 +1765,8 @@ function finishExport(blob) {
   var ext = /mp4/.test(blob.type) ? 'mp4' : 'webm';
   // Фактическая частота кадров — сразу видно, плавный ли вышел ролик (норма ~30 к/с).
   var fps = X.vframes > 0 && keptLength() > 0 ? ' · ' + Math.round(X.vframes / keptLength()) + ' к/с' : '';
-  $('done-info').textContent = fmt(keptLength()) + ' · ' + ext + ' · ' + (blob.size / 1048576).toFixed(1) + ' МБ' + fps;
+  $('done-info').textContent = fmt(keptLength()) + ' · ' + ext + ' · ' + (blob.size / 1048576).toFixed(1) + ' МБ' + fps +
+    (X.how ? ' · ' + X.how : '');
   show('done');
 }
 
