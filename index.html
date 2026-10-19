@@ -92,6 +92,22 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 .rec .dot{animation:bl 1.2s ease-in-out infinite}
 @keyframes bl{50%{opacity:.25}}
 
+.subs-cv{position:absolute;pointer-events:none}
+.sub-opts{padding:12px 0 4px;border-bottom:.5px solid var(--line)}
+.sub-opts .seg{grid-template-columns:repeat(2,1fr)}
+.link{background:none;border:0;color:var(--accent);font-size:14px;padding:12px 0 2px}
+.status{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);padding:10px 0 0}
+.status .spin{width:16px;height:16px}
+
+.text-head{display:flex;align-items:center;justify-content:space-between;margin:4px 0 4px;font-size:17px;font-weight:300}
+.text-head .btn{height:38px;font-size:14px}
+.phrase{display:flex;gap:10px;padding:10px 0;border-bottom:.5px solid var(--line)}
+.phrase time{font-size:11px;color:var(--muted);padding-top:9px;min-width:30px;font-variant-numeric:tabular-nums}
+.phrase textarea{flex:1;resize:none;background:var(--panel);color:var(--text);border:.5px solid var(--line2);border-radius:10px;
+  padding:8px 10px;font:inherit;font-size:15px;line-height:1.35;outline:none}
+.phrase textarea:focus{border-color:var(--accent)}
+.phrase.cut textarea{opacity:.45}
+
 .toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:488px;margin:0 auto;
   background:var(--panel);border:.5px solid var(--accent);border-radius:12px;padding:12px 14px;font-size:14px}
 </style>
@@ -123,6 +139,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
   <section id="scr-edit" hidden>
     <div class="stage" id="stage">
       <video id="video" playsinline preload="auto"></video>
+      <canvas class="subs-cv" id="subs-cv"></canvas>
       <span class="stage-tag" id="tag">Без пауз</span>
       <button class="playbtn" id="play" aria-label="Воспроизвести">
         <svg width="20" height="22" viewBox="0 0 20 22" aria-hidden="true"><path d="M2 1.5v19L19 11z" fill="#fff"/></svg>
@@ -143,11 +160,24 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
       <button data-l="soft">Мягко</button><button data-l="mid">Средне</button><button data-l="hard">Жёстко</button>
     </div>
     <label class="row"><span>Пропускать паузы в просмотре</span><input type="checkbox" class="sw" id="skip" checked></label>
+    <label class="row"><span>Титры</span><input type="checkbox" class="sw" id="subs"></label>
+    <div class="status" id="subs-status" hidden><div class="spin"></div><span>Распознаю речь…</span></div>
+    <div class="sub-opts" id="subs-opts" hidden>
+      <div class="seg" id="styles"><button data-s="studio">Студия</button><button data-s="karaoke">Караоке</button></div>
+      <button class="link" id="edit-text">Править текст</button>
+    </div>
 
     <div class="actions">
       <button class="btn ghost" id="again">Другое видео</button>
       <button class="btn primary" id="go">Собрать видео</button>
     </div>
+  </section>
+
+  <!-- 3а. Правка текста титров -->
+  <section id="scr-text" hidden>
+    <div class="text-head"><span>Текст титров</span><button class="btn primary" id="text-done">Готово</button></div>
+    <p class="tiny" style="margin:0 0 6px;max-width:none">Исправьте ошибки распознавания — время слов подстроится само. Бледные фразы попали в вырезанные паузы.</p>
+    <div id="phrases"></div>
   </section>
 
   <!-- 4. Сборка -->
@@ -176,7 +206,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 <div class="toast" id="toast" hidden></div>
 
 <script>
-var APP_VERSION = '0.1.0';
+var APP_VERSION = '0.2.0';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -189,13 +219,16 @@ var LEVELS = {
 var HOP = 0.01;          // шаг анализа звука, секунды
 var MIN_SPEECH = 6;      // всплеск короче 60 мс — щелчок, а не речь
 var MAX_FILE_MB = 700;
+var API = 'https://reelista.mnacik1988.workers.dev';   // распознавание речи (worker/index.js)
+var ACCENT = '#FF5A4E';
 
 var S = { file: null, url: null, duration: 0, db: null, floor: 0, peak: 0, thr: 0,
-          level: 'mid', keep: [], cuts: [], skip: true, out: null, outUrl: null };
+          level: 'mid', keep: [], cuts: [], skip: true, out: null, outUrl: null,
+          pcm: null, words: null, phrases: [], units: [], subsOn: false, style: 'studio', tr: null };
 
 function $(id) { return document.getElementById(id); }
 function show(name) {
-  ['start', 'busy', 'edit', 'export', 'done'].forEach(function (n) { $('scr-' + n).hidden = n !== name; });
+  ['start', 'busy', 'edit', 'text', 'export', 'done'].forEach(function (n) { $('scr-' + n).hidden = n !== name; });
 }
 function fmt(t) {
   t = Math.max(0, t || 0);
@@ -224,6 +257,9 @@ document.title = BRAND;
 $('brand').textContent = BRAND;
 $('ver').textContent = 'v' + APP_VERSION;
 S.level = LEVELS[store('level')] ? store('level') : 'mid';
+S.style = store('style') === 'karaoke' ? 'karaoke' : 'studio';
+S.subsOn = store('subs') === '1';
+$('subs').checked = S.subsOn;
 
 /* ---------- Загрузка и анализ ---------- */
 
@@ -240,6 +276,7 @@ function loadFile(f) {
   }
   stopPreview();
   S.file = f;
+  S.words = null; S.phrases = []; S.units = []; S.tr = null;
   if (S.url) URL.revokeObjectURL(S.url);
   S.url = URL.createObjectURL(f);
   $('video').src = S.url;
@@ -251,9 +288,11 @@ function loadFile(f) {
     .then(decodeAudio)
     .then(function (audio) {
       analyse(audio);
+      S.pcm = to16k(audio);   // звук для распознавания: 16 кГц моно, ~2 МБ на минуту
       buildSegments();
       show('edit');
       renderEdit();
+      if (S.subsOn) transcribe();
     })
     .catch(function (e) {
       console.error(e);
@@ -343,9 +382,300 @@ function nextKeepStart(t) {
   return null;
 }
 
+/* ---------- Титры: распознавание ---------- */
+
+// Моно 16 кГц: усредняем исходные отсчёты в каждом новом интервале (заодно срезает высокие частоты).
+function to16k(ab) {
+  var sr = ab.sampleRate, ratio = sr / 16000, n = Math.floor(ab.length / ratio);
+  var ch = [], nc = ab.numberOfChannels, c;
+  for (c = 0; c < nc; c++) ch.push(ab.getChannelData(c));
+  var out = new Int16Array(n);
+  for (var i = 0; i < n; i++) {
+    var a = Math.floor(i * ratio), b = Math.max(a + 1, Math.floor((i + 1) * ratio)), sum = 0;
+    for (var j = a; j < b; j++) for (c = 0; c < nc; c++) sum += ch[c][j] || 0;
+    var x = sum / ((b - a) * nc);
+    out[i] = Math.max(-32768, Math.min(32767, Math.round(x * 32767)));
+  }
+  return out;
+}
+
+function makeWav(pcm) {
+  var buf = new ArrayBuffer(44 + pcm.length * 2), d = new DataView(buf);
+  function str(o, s) { for (var i = 0; i < s.length; i++) d.setUint8(o + i, s.charCodeAt(i)); }
+  str(0, 'RIFF'); d.setUint32(4, 36 + pcm.length * 2, true); str(8, 'WAVE');
+  str(12, 'fmt '); d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true);
+  d.setUint32(24, 16000, true); d.setUint32(28, 32000, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true);
+  str(36, 'data'); d.setUint32(40, pcm.length * 2, true);
+  new Int16Array(buf, 44).set(pcm);
+  return buf;
+}
+
+var TR_ERRORS = {
+  rate_limited: 'Слишком много запросов. Подождите минуту и включите титры снова.',
+  too_large: 'Ролик слишком длинный для титров — до 4 минут.',
+  daily_cap: 'Распознавание на сегодня перегружено. Попробуйте завтра.',
+  forbidden: 'Сервер не принял запрос с этой страницы.'
+};
+
+function transcribe() {
+  if (S.words || !S.pcm) return Promise.resolve();
+  if (S.tr) return S.tr;
+  $('subs-status').hidden = false;
+  var file = S.file;
+  S.tr = fetch(API + '/transcribe', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: makeWav(S.pcm) })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) throw new Error(j.error || ('http ' + r.status));
+        return j;
+      });
+    })
+    .then(function (j) {
+      if (file !== S.file) return;            // пока ждали, выбрали другой ролик
+      S.words = cleanWords(j.words || []);
+      S.phrases = groupWords(S.words, 36, 8, false);
+      buildUnits();
+      if (!S.words.length) toast('Речь не распознана — титров не будет.');
+    })
+    .catch(function (e) {
+      if (file !== S.file) return;
+      console.error(e);
+      S.subsOn = false; $('subs').checked = false; store('subs', '0');
+      toast(TR_ERRORS[e.message] || 'Не удалось распознать речь: проверьте интернет и попробуйте снова.');
+    })
+    .then(function () { S.tr = null; $('subs-status').hidden = true; renderSubsUi(); drawOverlay(); });
+  return S.tr;
+}
+
+// Whisper отдаёт тире и знаки отдельными «словами» — оставляем только слова с буквами или цифрами.
+var HAS_TEXT = /[0-9A-Za-zА-Яа-яЁёІіЇїЄєҐґÀ-ɏ]/;
+function cleanWords(list) {
+  var out = [];
+  list.forEach(function (x) {
+    var w = String(x.w || '').trim(), s = +x.s, e = +x.e;
+    if (!HAS_TEXT.test(w) || !(e >= s)) return;
+    var prev = out[out.length - 1];
+    if (prev && s < prev.e) s = prev.e;      // слова не должны налезать друг на друга
+    out.push({ w: w, s: s, e: Math.max(e, s + 0.05) });
+  });
+  return out;
+}
+
+/* ---------- Титры: группировка и отрисовка ---------- */
+
+function cutBetween(a, b) {
+  for (var i = 0; i < S.cuts.length; i++) if (S.cuts[i][0] < b && S.cuts[i][1] > a) return true;
+  return false;
+}
+
+var CAPITAL = /^[A-ZА-ЯЁІЇЄҐ]/;
+var SHORT = /^[a-zа-яёіїєґ]{1,2}$/;   // «в», «и», «на», «не» — не оставляем висеть в конце строки
+
+function chars(ws) { return ws.reduce(function (s, w) { return s + w.w.length + 1; }, -1); }
+
+// Режем речь на куски для показа. Сначала на предложения (пауза, знак конца, заглавная буква,
+// вырез монтажа), потом длинное предложение — на РАВНЫЕ части, а не «сколько влезло + огрызок».
+function groupWords(words, maxChars, maxWords, splitCuts) {
+  var sentences = [], cur = null;
+  words.forEach(function (w) {
+    var prev = cur && cur[cur.length - 1];
+    var brk = !cur || w.s - prev.e > 0.45 || /[.!?…]$/.test(prev.w) ||
+              (CAPITAL.test(w.w) && cur.length >= 2) || (splitCuts && cutBetween(prev.e, w.s));
+    if (brk) { cur = []; sentences.push(cur); }
+    cur.push(w);
+  });
+
+  var out = [];
+  sentences.forEach(function (sent) {
+    var n = Math.max(Math.ceil(chars(sent) / maxChars), Math.ceil(sent.length / maxWords));
+    var parts = [], target = chars(sent) / n, part = [];
+    sent.forEach(function (w, i) {
+      var left = sent.length - i;                       // сколько слов ещё не разложено
+      if (part.length && parts.length < n - 1 &&
+          (chars(part.concat(w)) > target * 1.15 || part.length >= maxWords) && left >= n - 1 - parts.length) {
+        parts.push(part); part = [];
+      }
+      part.push(w);
+    });
+    parts.push(part);
+    for (var i = 0; i < parts.length - 1; i++) {
+      var last = parts[i][parts[i].length - 1];
+      if (parts[i].length > 1 && SHORT.test(last.w)) parts[i + 1].unshift(parts[i].pop());
+    }
+    parts.forEach(function (p) { if (p.length) out.push({ words: p }); });
+  });
+
+  out.forEach(function (u, i) {
+    u.s = u.words[0].s;
+    var next = out[i + 1];
+    // Фраза висит чуть дольше последнего слова, но не дольше начала следующей.
+    u.end = Math.min(u.words[u.words.length - 1].e + 0.35, next ? next.words[0].s : Infinity);
+  });
+  return out;
+}
+
+// Whisper любит растягивать первое слово после паузы на всю паузу (замер: «Зритель» 10.06–11.92 с).
+// Поэтому слово живёт, пока заметная его часть звучит в ролике, а время обрезаем до этой части.
+// Если кусков несколько — берём последний: растянуто начало слова, а не конец.
+function keptPart(w) {
+  var s = null, e = null;
+  for (var i = 0; i < S.keep.length; i++) {
+    var a = Math.max(w.s, S.keep[i][0]), b = Math.min(w.e, S.keep[i][1]);
+    if (b - a > 0.08) { s = a; e = b; }
+  }
+  return s === null ? null : { w: w.w, s: s, e: e };
+}
+
+function buildUnits() {
+  if (!S.words) { S.units = []; return; }
+  var kept = S.words.map(keptPart).filter(Boolean);
+  S.units = S.style === 'karaoke' ? groupWords(kept, 18, 3, true) : groupWords(kept, 36, 8, true);
+}
+
+function unitAt(t) {
+  for (var i = 0; i < S.units.length; i++) {
+    var u = S.units[i];
+    if (t >= u.s && t < u.end) return u;
+    if (u.s > t) break;
+  }
+  return null;
+}
+
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+
+// Один рисовальщик и для просмотра, и для сборки — что видно на экране, то и попадёт в ролик.
+function drawSubs(g, W, H, t) {
+  if (!S.subsOn || !S.units.length) return;
+  var u = unitAt(t);
+  if (!u) return;
+  var karaoke = S.style === 'karaoke', base = Math.min(W, H);
+  var fs = Math.round(base * (karaoke ? 0.085 : 0.058));
+  var font = (karaoke ? '800 ' : '600 ') + fs + 'px -apple-system, "SF Pro Display", "Segoe UI", Roboto, sans-serif';
+  g.save();
+  g.font = font; g.textBaseline = 'middle'; g.lineJoin = 'round';
+  // В караоке плашке нужен воздух, иначе она налезает на соседние слова.
+  var space = g.measureText(' ').width + (karaoke ? fs * 0.3 : 0), maxW = W * 0.86, lineH = fs * (karaoke ? 1.4 : 1.25);
+
+  // Активное слово — последнее начавшееся: между словами подсветка не мигает.
+  var active = -1;
+  u.words.forEach(function (w, i) { if (t >= w.s) active = i; });
+
+  var lines = [[]], lw = [0];
+  u.words.forEach(function (w, i) {
+    var ww = g.measureText(w.w).width, L = lines.length - 1;
+    if (lines[L].length && lw[L] + space + ww > maxW) { lines.push([]); lw.push(0); L++; }
+    lw[L] += (lines[L].length ? space : 0) + ww;
+    lines[L].push({ text: w.w, width: ww, i: i });
+  });
+
+  var cy = H * (karaoke ? 0.70 : 0.78), y0 = cy - (lines.length - 1) * lineH / 2;
+  lines.forEach(function (line, L) {
+    var x = (W - lw[L]) / 2, y = y0 + L * lineH;
+    line.forEach(function (it) {
+      var on = it.i === active;
+      if (karaoke && on) {
+        var p = fs * 0.14;
+        g.fillStyle = ACCENT;
+        roundRect(g, x - p, y - fs * 0.62, it.width + p * 2, fs * 1.24, fs * 0.2);
+        g.fill();
+      } else {
+        g.lineWidth = fs * (karaoke ? 0.16 : 0.13);
+        g.strokeStyle = 'rgba(0,0,0,0.55)';
+        g.strokeText(it.text, x, y);
+      }
+      g.fillStyle = on && !karaoke ? ACCENT : '#fff';
+      g.fillText(it.text, x, y);
+      x += it.width + space;
+    });
+  });
+  g.restore();
+}
+
+// Холст титров лежит ровно поверх картинки видео (с учётом чёрных полей object-fit: contain).
+function drawOverlay() {
+  var cv = $('subs-cv'), stage = $('stage');
+  var vw = v.videoWidth, vh = v.videoHeight;
+  var g = cv.getContext('2d');
+  if (!vw || !vh || !S.subsOn || !S.units.length) { g.clearRect(0, 0, cv.width, cv.height); return; }
+  var bw = stage.clientWidth, bh = stage.clientHeight, k = Math.min(bw / vw, bh / vh);
+  var cw = Math.round(vw * k), ch = Math.round(vh * k), dpr = window.devicePixelRatio || 1;
+  if (cv.style.width !== cw + 'px' || cv.style.height !== ch + 'px') {
+    cv.style.width = cw + 'px'; cv.style.height = ch + 'px';
+    cv.style.left = Math.round((bw - cw) / 2) + 'px'; cv.style.top = Math.round((bh - ch) / 2) + 'px';
+    cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
+  }
+  g.clearRect(0, 0, cv.width, cv.height);
+  drawSubs(g, cv.width, cv.height, v.currentTime);
+}
+
+function renderSubsUi() {
+  $('subs-opts').hidden = !(S.subsOn && S.words && S.words.length);
+  [].forEach.call($('styles').children, function (b) { b.classList.toggle('on', b.dataset.s === S.style); });
+}
+
+$('subs').addEventListener('change', function () {
+  S.subsOn = this.checked; store('subs', S.subsOn ? '1' : '0');
+  renderSubsUi(); drawOverlay();
+  if (S.subsOn) transcribe();
+});
+$('styles').addEventListener('click', function (e) {
+  var s = e.target.dataset && e.target.dataset.s;
+  if (!s || s === S.style) return;
+  S.style = s; store('style', s);
+  buildUnits(); renderSubsUi(); drawOverlay();
+});
+
+/* ---------- Титры: правка текста ---------- */
+
+$('edit-text').addEventListener('click', function () {
+  stopPreview();
+  var box = $('phrases');
+  box.innerHTML = '';
+  S.phrases.forEach(function (p, i) {
+    var row = document.createElement('div');
+    var allCut = p.words.every(function (w) { return !keptPart(w); });
+    row.className = 'phrase' + (allCut ? ' cut' : '');
+    var tm = document.createElement('time'); tm.textContent = fmt(p.s);
+    var ta = document.createElement('textarea');
+    ta.rows = 2; ta.value = p.words.map(function (w) { return w.w; }).join(' '); ta.dataset.i = i;
+    row.appendChild(tm); row.appendChild(ta); box.appendChild(row);
+  });
+  show('text');
+  window.scrollTo(0, 0);
+});
+
+$('text-done').addEventListener('click', function () {
+  // Новые слова раскладываем по времени старой фразы пропорционально длине слова.
+  [].forEach.call($('phrases').querySelectorAll('textarea'), function (ta) {
+    var p = S.phrases[+ta.dataset.i], text = ta.value.trim().replace(/\s+/g, ' ');
+    if (text === p.words.map(function (w) { return w.w; }).join(' ')) return;
+    var parts = text ? text.split(' ') : [];
+    // Раскладываем по ЗВУЧАЩЕЙ части фразы, иначе новое слово может попасть в вырезанную тишину.
+    var heard = p.words.map(keptPart).filter(Boolean);
+    var a = heard.length ? heard[0].s : p.words[0].s;
+    var b = heard.length ? heard[heard.length - 1].e : p.words[p.words.length - 1].e;
+    var total = parts.reduce(function (s, w) { return s + w.length + 1; }, 0), acc = 0;
+    p.words = parts.map(function (w) {
+      var s = a + (b - a) * acc / total; acc += w.length + 1;
+      return { w: w, s: s, e: a + (b - a) * acc / total };
+    });
+  });
+  S.phrases = S.phrases.filter(function (p) { return p.words.length; });
+  S.words = [].concat.apply([], S.phrases.map(function (p) { return p.words; }));
+  S.phrases.forEach(function (p) { p.s = p.words[0].s; });
+  buildUnits();
+  show('edit');
+  renderEdit();
+});
+
 /* ---------- Экран монтажа ---------- */
 
 function renderEdit() {
+  buildUnits();
+  renderSubsUi();
   [].forEach.call($('levels').children, function (b) { b.classList.toggle('on', b.dataset.l === S.level); });
   var now = keptLength(), cut = S.duration - now, pauses = S.cuts.length;
   $('st-was').textContent = fmt(S.duration);
@@ -383,6 +713,7 @@ function moveHead() {
   var v = $('video'), w = $('wave-wrap').clientWidth;
   $('head').style.transform = 'translateX(' + (S.duration ? v.currentTime / S.duration * w : 0) + 'px)';
   $('tcur').textContent = fmt(v.currentTime);
+  drawOverlay();
 }
 
 $('levels').addEventListener('click', function (e) {
@@ -422,6 +753,7 @@ v.addEventListener('click', togglePlay);
 v.addEventListener('play', function () { $('stage').classList.add('playing'); previewLoop(); });
 v.addEventListener('pause', function () { $('stage').classList.remove('playing'); moveHead(); });
 v.addEventListener('seeked', moveHead);
+v.addEventListener('loadeddata', moveHead);
 
 function previewLoop() {
   if (v.paused) return;
@@ -545,7 +877,8 @@ function runExport(src) {
   var W = Math.round(vw * k / 2) * 2, H = Math.round(vh * k / 2) * 2;
   var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   var g = cv.getContext('2d');
-  g.drawImage(src, 0, 0, W, H);
+  function frame() { g.drawImage(src, 0, 0, W, H); drawSubs(g, W, H, src.currentTime); }
+  frame();
 
   var stream = new MediaStream(cv.captureStream(30).getVideoTracks().concat(X.dest.stream.getAudioTracks()));
   var mime = pickMime();
@@ -556,7 +889,7 @@ function runExport(src) {
   var stopped = new Promise(function (res) { rec.onstop = res; });
 
   var drawing = true;
-  (function draw() { if (!drawing) return; g.drawImage(src, 0, 0, W, H); setTimeout(draw, 1000 / 30); })();
+  (function draw() { if (!drawing) return; frame(); setTimeout(draw, 1000 / 30); })();
 
   var total = keptLength(), done = 0, i = 0;
   X.overshoot = [];
@@ -569,7 +902,7 @@ function runExport(src) {
     if (i >= S.keep.length) return Promise.resolve();
     var a = S.keep[i][0], b = S.keep[i][1];
     return seek(src, a).then(function () {
-      g.drawImage(src, 0, 0, W, H);        // первым кадром идёт уже нужный, а не хвост прошлого куска
+      frame();                             // первым кадром идёт уже нужный, а не хвост прошлого куска
       var now = X.ctx.currentTime;
       X.gain.gain.cancelScheduledValues(now);
       X.gain.gain.setValueAtTime(0, now);
@@ -626,7 +959,7 @@ function download(name) {
 $('back').addEventListener('click', function () { $('result').pause(); show('edit'); renderEdit(); });
 
 // Для отладки из консоли: Reelista.load(file), Reelista.state
-window.Reelista = { load: loadFile, state: S, export: X };
+window.Reelista = { load: loadFile, state: S, export: X, transcribe: transcribe };
 </script>
 </body>
 </html>
