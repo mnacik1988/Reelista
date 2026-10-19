@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0E0E10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Reelista</title>
+<style>
+:root{
+  --bg:#0E0E10; --panel:#151518; --line:#2A2A30; --line2:#3A3A40;
+  --text:#E8E8EA; --muted:#8E8E96; --accent:#FF5A4E; --accent-dim:rgba(255,90,78,.14);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);
+  font:400 15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
+body{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;
+  padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+button,label.btn{font:inherit;color:inherit;cursor:pointer}
+[hidden]{display:none!important}
+
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;font-size:13px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0}
+.ver{font-size:11px;color:var(--muted);padding:3px 8px;border:.5px solid var(--line2);border-radius:20px}
+
+main{flex:1;display:flex;flex-direction:column;padding:0 16px 16px;max-width:520px;width:100%;margin:0 auto}
+section{flex:1;display:flex;flex-direction:column}
+.center{align-items:center;justify-content:center;text-align:center}
+h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
+.muted{color:var(--muted);font-size:14px;margin:0 0 22px;max-width:320px}
+.tiny{color:var(--muted);font-size:12px;margin:18px 0 0;max-width:300px}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 18px;white-space:nowrap;
+  border-radius:24px;border:.5px solid var(--line2);background:transparent;font-size:15px;user-select:none}
+.btn:active{transform:scale(.98)}
+.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.ghost{color:var(--text)}
+.vh{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden}
+
+/* видоискатель на стартовом экране */
+.vf{position:relative;width:120px;height:170px}
+.vf i{position:absolute;width:22px;height:22px;border:0 solid var(--muted)}
+.vf i:nth-child(1){top:0;left:0;border-top-width:1px;border-left-width:1px}
+.vf i:nth-child(2){top:0;right:0;border-top-width:1px;border-right-width:1px}
+.vf i:nth-child(3){bottom:0;left:0;border-bottom-width:1px;border-left-width:1px}
+.vf i:nth-child(4){bottom:0;right:0;border-bottom-width:1px;border-right-width:1px}
+.vf .dot{position:absolute;top:50%;left:50%;width:14px;height:14px;margin:-7px 0 0 -7px}
+
+.spin{width:28px;height:28px;border-radius:50%;border:1.5px solid var(--line2);border-top-color:var(--accent);animation:sp 0.9s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+.stage{position:relative;background:#000;border:.5px solid var(--line);border-radius:18px;overflow:hidden;
+  height:46vh;height:46dvh;display:flex;align-items:center;justify-content:center}
+.stage video{width:100%;height:100%;object-fit:contain;display:block}
+.playbtn{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.7);background:rgba(14,14,16,.35);display:flex;align-items:center;justify-content:center}
+.playing .playbtn{opacity:0}
+.stage-tag{position:absolute;top:10px;left:10px;font-size:11px;padding:3px 8px;border-radius:20px;
+  background:rgba(14,14,16,.6);border:.5px solid var(--line2);color:var(--text)}
+
+.wave-wrap{position:relative;height:64px;margin:14px 0 4px;touch-action:none}
+.wave-wrap canvas{width:100%;height:100%;display:block}
+.head{position:absolute;top:0;bottom:0;width:1px;background:#fff;left:0;pointer-events:none}
+.times{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+.stats{display:flex;align-items:baseline;gap:10px;margin:14px 0 12px;font-variant-numeric:tabular-nums}
+.stats small{display:block;font-size:11px;color:var(--muted)}
+.stats b{font-weight:300;font-size:22px}
+.stats .now b{color:var(--accent)}
+.stats .arrow{color:var(--muted)}
+.stats .cut{margin-left:auto;font-size:12px;color:var(--muted);text-align:right}
+
+.seg{display:grid;grid-template-columns:repeat(3,1fr);border:.5px solid var(--line2);border-radius:12px;padding:3px;gap:3px}
+.seg button{height:34px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:13px}
+.seg button.on{background:var(--panel);color:var(--text);box-shadow:inset 0 0 0 .5px var(--accent)}
+.seg-label{font-size:11px;color:var(--muted);margin:0 0 6px}
+
+.row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:.5px solid var(--line);font-size:14px}
+.sw{appearance:none;-webkit-appearance:none;width:40px;height:24px;border-radius:12px;background:var(--line2);position:relative;margin:0;transition:background .15s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s}
+.sw:checked{background:var(--accent)}
+.sw:checked::after{left:19px}
+
+.actions{display:grid;grid-template-columns:1fr 1.2fr;gap:10px;margin-top:auto;padding-top:16px}
+
+.pct{font-weight:200;font-size:56px;font-variant-numeric:tabular-nums;margin:8px 0 14px}
+.bar{width:100%;max-width:320px;height:2px;background:var(--line2);border-radius:2px;overflow:hidden;margin-bottom:22px}
+.bar i{display:block;height:100%;width:0;background:var(--accent)}
+.rec{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
+.rec .dot{animation:bl 1.2s ease-in-out infinite}
+@keyframes bl{50%{opacity:.25}}
+
+.toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:488px;margin:0 auto;
+  background:var(--panel);border:.5px solid var(--accent);border-radius:12px;padding:12px 14px;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span><span id="brand"></span></div>
+  <span class="ver" id="ver"></span>
+</header>
+
+<main>
+  <!-- 1. Выбор ролика -->
+  <section id="scr-start" class="center">
+    <div class="vf"><i></i><i></i><i></i><i></i><span class="dot"></span></div>
+    <h1>Паузы вырежутся сами</h1>
+    <p class="muted">Выберите ролик, где вы говорите в камеру. Приложение найдёт тишину и уберёт её.</p>
+    <label class="btn primary" for="file">Выбрать видео</label>
+    <input id="file" class="vh" type="file" accept="video/*">
+    <p class="tiny">Ролики до 3 минут. Всё считается прямо на телефоне — видео никуда не отправляется.</p>
+  </section>
+
+  <!-- 2. Анализ звука -->
+  <section id="scr-busy" class="center" hidden>
+    <div class="spin"></div>
+    <p class="muted" style="margin-top:16px" id="busy-text">Слушаю паузы…</p>
+  </section>
+
+  <!-- 3. Монтаж -->
+  <section id="scr-edit" hidden>
+    <div class="stage" id="stage">
+      <video id="video" playsinline preload="auto"></video>
+      <span class="stage-tag" id="tag">Без пауз</span>
+      <button class="playbtn" id="play" aria-label="Воспроизвести">
+        <svg width="20" height="22" viewBox="0 0 20 22" aria-hidden="true"><path d="M2 1.5v19L19 11z" fill="#fff"/></svg>
+      </button>
+    </div>
+    <div class="wave-wrap" id="wave-wrap"><canvas id="wave"></canvas><div class="head" id="head"></div></div>
+    <div class="times"><span id="tcur">0:00</span><span id="tlen">0:00</span></div>
+
+    <div class="stats">
+      <div><small>Было</small><b id="st-was">0:00</b></div>
+      <span class="arrow">→</span>
+      <div class="now"><small>Стало</small><b id="st-now">0:00</b></div>
+      <div class="cut" id="st-cut"></div>
+    </div>
+
+    <p class="seg-label">Сколько резать</p>
+    <div class="seg" id="levels">
+      <button data-l="soft">Мягко</button><button data-l="mid">Средне</button><button data-l="hard">Жёстко</button>
+    </div>
+    <label class="row"><span>Пропускать паузы в просмотре</span><input type="checkbox" class="sw" id="skip" checked></label>
+
+    <div class="actions">
+      <button class="btn ghost" id="again">Другое видео</button>
+      <button class="btn primary" id="go">Собрать видео</button>
+    </div>
+  </section>
+
+  <!-- 4. Сборка -->
+  <section id="scr-export" class="center" hidden>
+    <div class="rec"><span class="dot"></span>Сборка</div>
+    <div class="pct" id="xpct">0%</div>
+    <div class="bar"><i id="xbar"></i></div>
+    <p class="muted">Видео собирается в реальном времени. Не сворачивайте приложение и не блокируйте экран.</p>
+    <button class="btn ghost" id="xcancel">Отмена</button>
+  </section>
+
+  <!-- 5. Готово -->
+  <section id="scr-done" hidden>
+    <div class="stage"><video id="result" playsinline controls></video></div>
+    <p class="muted" style="margin:12px 0 0;max-width:none" id="done-info"></p>
+    <div class="actions">
+      <button class="btn ghost" id="back">К монтажу</button>
+      <button class="btn primary" id="save">Сохранить</button>
+    </div>
+    <p class="tiny" style="max-width:none;text-align:center">В меню выберите «Сохранить видео» — ролик попадёт в «Фото».</p>
+  </section>
+</main>
+
+<!-- Скрытый плеер, из которого собирается итоговое видео -->
+<video id="xvideo" playsinline preload="auto" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+var APP_VERSION = '0.1.0';
+// Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
+var BRAND = 'Reelista';
+
+// Уровни резки: какая тишина считается паузой и сколько воздуха оставить у слов.
+var LEVELS = {
+  soft: { minPause: 0.70, pad: 0.15 },
+  mid:  { minPause: 0.45, pad: 0.10 },
+  hard: { minPause: 0.25, pad: 0.06 }
+};
+var HOP = 0.01;          // шаг анализа звука, секунды
+var MIN_SPEECH = 6;      // всплеск короче 60 мс — щелчок, а не речь
+var MAX_FILE_MB = 700;
+
+var S = { file: null, url: null, duration: 0, db: null, floor: 0, peak: 0, thr: 0,
+          level: 'mid', keep: [], cuts: [], skip: true, out: null, outUrl: null };
+
+function $(id) { return document.getElementById(id); }
+function show(name) {
+  ['start', 'busy', 'edit', 'export', 'done'].forEach(function (n) { $('scr-' + n).hidden = n !== name; });
+}
+function fmt(t) {
+  t = Math.max(0, t || 0);
+  var m = Math.floor(t / 60), s = Math.floor(t % 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+function plural(n, one, few, many) {
+  var a = n % 10, b = n % 100;
+  if (a === 1 && b !== 11) return one;
+  if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return few;
+  return many;
+}
+function store(k, v) {
+  try {
+    if (v === undefined) return localStorage.getItem('reelista.' + k);
+    localStorage.setItem('reelista.' + k, v);
+  } catch (e) { return null; }
+}
+var toastTimer;
+function toast(msg) {
+  var t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 6000);
+}
+
+document.title = BRAND;
+$('brand').textContent = BRAND;
+$('ver').textContent = 'v' + APP_VERSION;
+S.level = LEVELS[store('level')] ? store('level') : 'mid';
+
+/* ---------- Загрузка и анализ ---------- */
+
+$('file').addEventListener('change', function () {
+  var f = this.files && this.files[0];
+  this.value = '';
+  if (f) loadFile(f);
+});
+
+function loadFile(f) {
+  if (f.size > MAX_FILE_MB * 1024 * 1024) {
+    toast('Файл больше ' + MAX_FILE_MB + ' МБ. Снимите в 1080p или возьмите ролик покороче.');
+    return Promise.resolve();
+  }
+  stopPreview();
+  S.file = f;
+  if (S.url) URL.revokeObjectURL(S.url);
+  S.url = URL.createObjectURL(f);
+  $('video').src = S.url;
+  $('xvideo').src = S.url;
+  show('busy');
+  $('busy-text').textContent = 'Слушаю паузы…';
+
+  return f.arrayBuffer()
+    .then(decodeAudio)
+    .then(function (audio) {
+      analyse(audio);
+      buildSegments();
+      show('edit');
+      renderEdit();
+    })
+    .catch(function (e) {
+      console.error(e);
+      show('start');
+      toast('Не получилось прочитать звук из этого видео. Попробуйте другой ролик.');
+    });
+}
+
+function decodeAudio(buf) {
+  var AC = window.AudioContext || window.webkitAudioContext;
+  var ctx = new AC();
+  return new Promise(function (res, rej) {
+    // Старый Safari понимает только колбэки, новый — промис; поддерживаем оба.
+    var p = ctx.decodeAudioData(buf, res, function (e) { rej(e || new Error('decode')); });
+    if (p && p.then) p.then(res, rej);
+  }).then(function (a) { try { ctx.close(); } catch (e) {} return a; },
+          function (e) { try { ctx.close(); } catch (x) {} throw e; });
+}
+
+// Громкость в децибелах на каждые 10 мс + уровни «тишины» и «речи» именно этого ролика.
+function analyse(ab) {
+  var sr = ab.sampleRate, win = Math.round(sr * HOP), n = Math.floor(ab.length / win);
+  var ch = [];
+  for (var c = 0; c < ab.numberOfChannels; c++) ch.push(ab.getChannelData(c));
+  var db = new Float32Array(n), nc = ch.length;
+  for (var i = 0; i < n; i++) {
+    var sum = 0, o = i * win;
+    for (var j = 0; j < win; j++) {
+      var x = 0;
+      for (c = 0; c < nc; c++) x += ch[c][o + j];
+      x /= nc; sum += x * x;
+    }
+    db[i] = 10 * Math.log10(sum / win + 1e-12);
+  }
+  var sorted = Float32Array.from(db).sort();
+  S.db = db;
+  S.duration = ab.duration;
+  S.floor = sorted[Math.floor(n * 0.10)] || -120;
+  S.peak = sorted[Math.floor(n * 0.95)] || -120;
+  // Порог подстраивается под ролик: шумная улица и тихая комната режутся одинаково честно.
+  S.thr = S.floor + (S.peak - S.floor) * 0.30;
+}
+
+function buildSegments() {
+  var L = LEVELS[S.level], db = S.db, n = db ? db.length : 0, dur = S.duration;
+  S.cuts = []; S.keep = [[0, dur]];
+  // Звук ровный (музыка, шум, тишина) — отличить речь от паузы нельзя, ничего не режем.
+  if (!n || S.peak - S.floor < 6) return;
+
+  var sp = new Uint8Array(n), k, j, s;
+  for (k = 0; k < n; k++) sp[k] = db[k] >= S.thr ? 1 : 0;
+  for (k = 0; k < n;) {
+    if (sp[k]) { s = k; while (k < n && sp[k]) k++; if (k - s < MIN_SPEECH) for (j = s; j < k; j++) sp[j] = 0; }
+    else k++;
+  }
+  var first = -1, last = -1;
+  for (k = 0; k < n; k++) if (sp[k]) { if (first < 0) first = k; last = k; }
+  if (first < 0) return;
+
+  var cuts = [], minF = Math.round(L.minPause / HOP);
+  // Начало и конец (тянулись к кнопке, молчали в конце) режем при любой длине.
+  var headEnd = first * HOP - L.pad;
+  if (headEnd > 0.05) cuts.push([0, headEnd]);
+  for (k = first; k <= last;) {
+    if (!sp[k]) {
+      s = k; while (k <= last && !sp[k]) k++;
+      if (k - s >= minF) {
+        var a = s * HOP + L.pad, b = k * HOP - L.pad;
+        if (b - a > 0.05) cuts.push([a, b]);
+      }
+    } else k++;
+  }
+  var tail = (last + 1) * HOP + L.pad;
+  if (dur - tail > 0.05) cuts.push([tail, dur]);
+
+  var keep = [], t = 0;
+  cuts.forEach(function (c) { if (c[0] - t > 0.01) keep.push([t, c[0]]); t = c[1]; });
+  if (dur - t > 0.01) keep.push([t, dur]);
+  S.cuts = cuts;
+  S.keep = keep.length ? keep : [[0, dur]];
+}
+
+function keptLength() { return S.keep.reduce(function (s, k) { return s + k[1] - k[0]; }, 0); }
+function inCut(t) { for (var i = 0; i < S.cuts.length; i++) if (t >= S.cuts[i][0] && t < S.cuts[i][1]) return true; return false; }
+function nextKeepStart(t) {
+  for (var i = 0; i < S.keep.length; i++) if (S.keep[i][1] > t + 0.01) return Math.max(t, S.keep[i][0]);
+  return null;
+}
+
+/* ---------- Экран монтажа ---------- */
+
+function renderEdit() {
+  [].forEach.call($('levels').children, function (b) { b.classList.toggle('on', b.dataset.l === S.level); });
+  var now = keptLength(), cut = S.duration - now, pauses = S.cuts.length;
+  $('st-was').textContent = fmt(S.duration);
+  $('st-now').textContent = fmt(now);
+  $('tlen').textContent = fmt(S.duration);
+  $('st-cut').textContent = pauses
+    ? '−' + Math.round(cut) + ' с · ' + pauses + ' ' + plural(pauses, 'пауза', 'паузы', 'пауз')
+    : 'Пауз не нашлось';
+  drawWave();
+  moveHead();
+}
+
+function drawWave() {
+  var cv = $('wave'), w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1;
+  if (!w || !S.db) return;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  var g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  var dur = S.duration;
+  g.fillStyle = 'rgba(255,90,78,.14)';
+  S.cuts.forEach(function (c) { g.fillRect(c[0] / dur * w, 0, (c[1] - c[0]) / dur * w, h); });
+  var bars = Math.floor(w / 3), per = S.db.length / bars, range = S.peak - S.floor + 1e-6;
+  for (var b = 0; b < bars; b++) {
+    var mx = -200, k0 = Math.floor(b * per), k1 = Math.max(k0 + 1, Math.floor((b + 1) * per));
+    for (var k = k0; k < k1; k++) if (S.db[k] > mx) mx = S.db[k];
+    var v = Math.max(0, Math.min(1, (mx - S.floor) / range));
+    var bh = Math.max(2, v * (h - 10));
+    g.fillStyle = inCut((b + 0.5) * per * HOP) ? '#FF5A4E' : '#8E8E96';
+    g.fillRect(b * 3, (h - bh) / 2, 2, bh);
+  }
+}
+
+function moveHead() {
+  var v = $('video'), w = $('wave-wrap').clientWidth;
+  $('head').style.transform = 'translateX(' + (S.duration ? v.currentTime / S.duration * w : 0) + 'px)';
+  $('tcur').textContent = fmt(v.currentTime);
+}
+
+$('levels').addEventListener('click', function (e) {
+  var l = e.target.dataset && e.target.dataset.l;
+  if (!l || l === S.level) return;
+  S.level = l; store('level', l);
+  buildSegments(); renderEdit();
+});
+$('skip').addEventListener('change', function () {
+  S.skip = this.checked;
+  $('tag').textContent = S.skip ? 'Без пауз' : 'Оригинал';
+});
+$('again').addEventListener('click', function () { stopPreview(); show('start'); $('file').click(); });
+window.addEventListener('resize', function () { if (!$('scr-edit').hidden) { drawWave(); moveHead(); } });
+
+// Тап по волне — перемотка.
+$('wave-wrap').addEventListener('pointerdown', function (e) {
+  var r = this.getBoundingClientRect();
+  $('video').currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * S.duration;
+  moveHead();
+});
+
+/* ---------- Просмотр без пауз ---------- */
+
+var v = $('video');
+function togglePlay() {
+  if (!v.paused) { v.pause(); return; }
+  if (S.skip) {
+    var nx = nextKeepStart(v.currentTime);
+    v.currentTime = nx === null ? S.keep[0][0] : nx;
+  }
+  var p = v.play(); if (p && p.catch) p.catch(function () {});
+}
+function stopPreview() { if (!v.paused) v.pause(); }
+$('play').addEventListener('click', togglePlay);
+v.addEventListener('click', togglePlay);
+v.addEventListener('play', function () { $('stage').classList.add('playing'); previewLoop(); });
+v.addEventListener('pause', function () { $('stage').classList.remove('playing'); moveHead(); });
+v.addEventListener('seeked', moveHead);
+
+function previewLoop() {
+  if (v.paused) return;
+  // timeupdate в Safari приходит раз в ~250 мс — для прыжков через паузы мало, следим таймером.
+  if (S.skip && inCut(v.currentTime)) {
+    var nx = nextKeepStart(v.currentTime);
+    if (nx === null) { v.pause(); v.currentTime = S.keep[0][0]; return; }
+    v.currentTime = nx;
+  }
+  moveHead();
+  setTimeout(previewLoop, 15);
+}
+
+/* ---------- Сборка итогового видео ---------- */
+// Прототип собирает видео в реальном времени: проигрывает нужные куски в скрытом плеере,
+// рисует кадры на холст и пишет холст + звук через MediaRecorder. Между кусками запись
+// ставится на паузу — так в итог не попадают перемотки.
+
+var X = { ctx: null, gain: null, dest: null, cancel: false, lock: null, overshoot: [] };
+
+function pickMime() {
+  if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
+  var list = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4;codecs=avc1,mp4a', 'video/mp4',
+              'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+  for (var i = 0; i < list.length; i++) if (MediaRecorder.isTypeSupported(list[i])) return list[i];
+  return '';
+}
+
+function once(el, ev, ms) {
+  return new Promise(function (res, rej) {
+    var t = setTimeout(function () { el.removeEventListener(ev, h); rej(new Error(ev + ' timeout')); }, ms);
+    function h() { clearTimeout(t); el.removeEventListener(ev, h); res(); }
+    el.addEventListener(ev, h);
+  });
+}
+function seek(el, t) {
+  if (Math.abs(el.currentTime - t) < 0.001 && el.readyState >= 2) return Promise.resolve();
+  var p = once(el, 'seeked', 8000);
+  el.currentTime = t;
+  return p;
+}
+function playUntil(el, end, onTick) {
+  return new Promise(function (res, rej) {
+    var faded = false, lastT = -1, lastMove = Date.now();
+    (function tick() {
+      if (X.cancel) return rej(new Error('cancel'));
+      var t = el.currentTime;
+      if (t !== lastT) { lastT = t; lastMove = Date.now(); }
+      else if (Date.now() - lastMove > 4000) return rej(new Error('stalled'));
+      onTick(t);
+      // Мягко гасим звук в последние 20 мс куска, чтобы на склейке не щёлкало.
+      if (!faded && t >= end - 0.03) {
+        faded = true;
+        var now = X.ctx.currentTime;
+        X.gain.gain.cancelScheduledValues(now);
+        X.gain.gain.setValueAtTime(X.gain.gain.value, now);
+        X.gain.gain.linearRampToValueAtTime(0, now + 0.02);
+      }
+      if (t >= end || el.ended) return res();
+      // Таймер, а не requestAnimationFrame: кадры анимации браузер урезает (замер: 4/с в фоне),
+      // а таймеры идут ровно. У самого конца целимся точно в склейку.
+      var left = (end - t) * 1000 / (el.playbackRate || 1);
+      setTimeout(tick, left < 20 ? Math.max(0, left - 2) : 15);
+    })();
+  });
+}
+
+$('go').addEventListener('click', startExport);
+$('xcancel').addEventListener('click', function () { X.cancel = true; });
+// Свёрнутый Safari останавливает видео — честно прерываем сборку, а не пишем кривой ролик.
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden && !$('scr-export').hidden) { X.cancel = true; X.hiddenAbort = true; }
+});
+
+function startExport() {
+  stopPreview();
+  var src = $('xvideo');
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+    toast('Этот браузер не умеет собирать видео. Откройте приложение в Safari или Chrome.');
+    return;
+  }
+  // Всё, что требует «жеста пользователя», делаем сразу в обработчике нажатия.
+  if (!X.ctx) {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    X.ctx = new AC();
+    var node = X.ctx.createMediaElementSource(src);
+    X.gain = X.ctx.createGain();
+    X.dest = X.ctx.createMediaStreamDestination();
+    node.connect(X.gain); X.gain.connect(X.dest);
+  }
+  X.ctx.resume();
+  var unlock = src.play(); if (unlock && unlock.catch) unlock.catch(function () {});
+  src.pause();
+  if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { X.lock = l; }, function () {});
+
+  X.cancel = false; X.hiddenAbort = false;
+  show('export'); setProgress(0);
+  runExport(src).then(finishExport, function (e) {
+    releaseLock();
+    show('edit');
+    if (X.hiddenAbort) { X.hiddenAbort = false; toast('Сборка прервана: приложение свернули. Нажмите «Собрать видео» ещё раз.'); return; }
+    if (e && e.message === 'cancel') return;
+    console.error(e);
+    toast(e && e.message === 'stalled'
+      ? 'Сборка остановилась — похоже, приложение свернули. Попробуйте ещё раз.'
+      : 'Не получилось собрать видео: ' + (e && e.message || e));
+  });
+}
+
+function setProgress(p) {
+  var pct = Math.min(100, Math.round(p * 100));
+  $('xpct').textContent = pct + '%';
+  $('xbar').style.width = pct + '%';
+}
+function releaseLock() { if (X.lock) { X.lock.release().catch(function () {}); X.lock = null; } }
+
+function runExport(src) {
+  var vw = src.videoWidth, vh = src.videoHeight;
+  if (!vw || !vh) return Promise.reject(new Error('нет картинки в видео'));
+  var k = Math.min(1, 1920 / Math.max(vw, vh));
+  var W = Math.round(vw * k / 2) * 2, H = Math.round(vh * k / 2) * 2;
+  var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  var g = cv.getContext('2d');
+  g.drawImage(src, 0, 0, W, H);
+
+  var stream = new MediaStream(cv.captureStream(30).getVideoTracks().concat(X.dest.stream.getAudioTracks()));
+  var mime = pickMime();
+  var opts = { videoBitsPerSecond: W * H >= 1920 * 1080 ? 10e6 : 6e6, audioBitsPerSecond: 128000 };
+  if (mime) opts.mimeType = mime;
+  var rec = new MediaRecorder(stream, opts), chunks = [];
+  rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+  var stopped = new Promise(function (res) { rec.onstop = res; });
+
+  var drawing = true;
+  (function draw() { if (!drawing) return; g.drawImage(src, 0, 0, W, H); setTimeout(draw, 1000 / 30); })();
+
+  var total = keptLength(), done = 0, i = 0;
+  X.overshoot = [];
+  function cleanup() {
+    drawing = false; src.pause();
+    if (rec.state !== 'inactive') rec.stop();
+    stream.getTracks().forEach(function (t) { if (t.kind === 'video') t.stop(); });
+  }
+  function next() {
+    if (i >= S.keep.length) return Promise.resolve();
+    var a = S.keep[i][0], b = S.keep[i][1];
+    return seek(src, a).then(function () {
+      g.drawImage(src, 0, 0, W, H);        // первым кадром идёт уже нужный, а не хвост прошлого куска
+      var now = X.ctx.currentTime;
+      X.gain.gain.cancelScheduledValues(now);
+      X.gain.gain.setValueAtTime(0, now);
+      X.gain.gain.linearRampToValueAtTime(1, now + 0.015);
+      if (rec.state === 'inactive') rec.start(1000); else rec.resume();
+      return src.play();
+    }).then(function () {
+      return playUntil(src, b, function (t) { setProgress((done + Math.max(0, t - a)) / total); });
+    }).then(function () {
+      src.pause(); rec.pause();
+      X.overshoot.push(+(src.currentTime - b).toFixed(3));   // насколько проскочили конец куска
+      done += b - a; i++;
+      return next();
+    });
+  }
+  return next().then(function () {
+    cleanup();
+    return stopped;
+  }).then(function () {
+    return new Blob(chunks, { type: (rec.mimeType || mime || 'video/webm').split(';')[0] });
+  }, function (e) { cleanup(); throw e; });
+}
+
+function finishExport(blob) {
+  releaseLock();
+  S.out = blob;
+  if (S.outUrl) URL.revokeObjectURL(S.outUrl);
+  S.outUrl = URL.createObjectURL(blob);
+  $('result').src = S.outUrl;
+  var ext = /mp4/.test(blob.type) ? 'mp4' : 'webm';
+  $('done-info').textContent = fmt(keptLength()) + ' · ' + ext + ' · ' + (blob.size / 1048576).toFixed(1) + ' МБ';
+  show('done');
+}
+
+function outName() {
+  var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+  var ext = /mp4/.test(S.out.type) ? 'mp4' : 'webm';
+  return BRAND.toLowerCase() + '-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + '.' + ext;
+}
+
+$('save').addEventListener('click', function () {
+  if (!S.out) return;
+  var name = outName(), file = new File([S.out], name, { type: S.out.type });
+  // На iPhone «Поделиться» → «Сохранить видео» кладёт ролик прямо в «Фото».
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    navigator.share({ files: [file] }).catch(function (e) { if (e && e.name !== 'AbortError') download(name); });
+  } else download(name);
+});
+function download(name) {
+  var a = document.createElement('a');
+  a.href = S.outUrl; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+$('back').addEventListener('click', function () { $('result').pause(); show('edit'); renderEdit(); });
+
+// Для отладки из консоли: Reelista.load(file), Reelista.state
+window.Reelista = { load: loadFile, state: S, export: X };
+</script>
+</body>
+</html>
