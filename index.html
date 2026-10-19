@@ -261,7 +261,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.3.3';
+var APP_VERSION = '0.3.4';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -382,6 +382,7 @@ function loadFiles(files, replace) {
   return next().then(function () {
     if (!S.clips.length) { show('start'); return; }
     afterClipsChange();
+    primeExportPlayer();
     if (replace) { show('edit'); setPreviewTime(0); renderEdit(); }
     else { renderClips(); show('clips'); }
     ensureTranscripts();
@@ -1293,9 +1294,14 @@ function playUntil(el, end, onTick) {
 }
 
 // Дубли могли сниматься в разном размере: каждый кадр «заполняет» итоговый кадр без чёрных полей.
+// Холст закрашиваем КАЖДЫЙ раз, даже если кадра ещё нет: запись Safari получает новый кадр
+// только когда холст меняется — неизменный холст = ноль кадров = пустой файл (баг 0.3.2, «0.0 МБ»).
 function drawFit(g, el, W, H) {
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, W, H);
   var vw = el.videoWidth, vh = el.videoHeight;
-  if (!vw || !vh) return;
+  if (!vw || !vh || el.readyState < 2) return;
+  X.frames++;
   var k = Math.max(W / vw, H / vh), dw = vw * k, dh = vh * k;
   g.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh);
 }
@@ -1306,6 +1312,15 @@ $('xcancel').addEventListener('click', function () { X.cancel = true; });
 document.addEventListener('visibilitychange', function () {
   if (document.hidden && !$('scr-export').hidden) { X.cancel = true; X.hiddenAbort = true; }
 });
+
+// Скрытый плеер сборки получает ролик СРАЗУ после загрузки, как было в 0.1 (там сборка на iPhone
+// работала). В 0.3 ролик ставился только по нажатию «Собрать», и звук подключался к ещё пустому
+// плееру — у Safari на такой порядок известные капризы: звук молчит, запись выходит пустой.
+function primeExportPlayer() {
+  var src = $('xvideo');
+  if (!S.clips.length) return;
+  if (!src._clip || S.clips.indexOf(src._clip) < 0) { src._clip = S.clips[0]; src.src = S.clips[0].url; }
+}
 
 function startExport() {
   stopPreview();
@@ -1325,7 +1340,7 @@ function startExport() {
     node.connect(X.gain); X.gain.connect(X.dest);
   }
   X.ctx.resume();
-  if (!src._clip) { src._clip = S.segs[0].clip; src.src = src._clip.url; }
+  primeExportPlayer();
   var unlock = src.play(); if (unlock && unlock.catch) unlock.catch(function () {});
   src.pause();
   if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { X.lock = l; }, function () {});
@@ -1340,7 +1355,7 @@ function startExport() {
     console.error(e);
     toast(e && e.message === 'stalled'
       ? 'Сборка остановилась — похоже, приложение свернули. Попробуйте ещё раз.'
-      : 'Не получилось собрать видео: ' + (e && e.message || e));
+      : 'Не получилось собрать видео: ' + (e && e.message || e), 20000);
   });
 }
 
@@ -1369,13 +1384,15 @@ function runExport(src) {
     if (mime) opts.mimeType = mime;
     var rec = new MediaRecorder(stream, opts), chunks = [];
     rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+    X.recErr = null;
+    rec.onerror = function (e) { X.recErr = (e && e.error) || e; console.error('MediaRecorder', X.recErr); };
     var stopped = new Promise(function (res) { rec.onstop = res; });
 
     var drawing = true;
     (function draw() { if (!drawing) return; frame(); setTimeout(draw, 1000 / 30); })();
 
     var total = keptLength(), done = 0, i = 0;
-    X.overshoot = [];
+    X.overshoot = []; X.frames = 0;
     function cleanup() {
       drawing = false; src.pause();
       if (rec.state !== 'inactive') rec.stop();
@@ -1405,7 +1422,16 @@ function runExport(src) {
       cleanup();
       return stopped;
     }).then(function () {
-      return new Blob(chunks, { type: (rec.mimeType || mime || 'video/webm').split(';')[0] });
+      var blob = new Blob(chunks, { type: (rec.mimeType || mime || 'video/webm').split(';')[0] });
+      // Пустую запись не выдаём за готовый ролик — показываем, что именно не так, для диагностики.
+      if (blob.size < 64 * 1024 && total > 2) {
+        var tr = X.dest.stream.getAudioTracks()[0];
+        throw new Error('запись пустая (' + Math.round(blob.size / 1024) + ' КБ). Кадров: ' + X.frames +
+          ', звук: ' + X.ctx.state + (tr ? '/' + tr.readyState + (tr.muted ? '/muted' : '') : '/нет дорожки') +
+          ', видео ' + vw + '×' + vh + ' → ' + W + '×' + H + ', формат: ' + (rec.mimeType || mime || '?') +
+          (X.recErr ? ', ошибка записи: ' + errText(X.recErr) : ''));
+      }
+      return blob;
     }, function (e) { cleanup(); throw e; });
   });
 }
