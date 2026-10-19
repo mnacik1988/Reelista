@@ -261,7 +261,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.3.4';
+var APP_VERSION = '0.3.5';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -321,6 +321,13 @@ function toast(msg, ms) {
   var t = $('toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, ms || 6000);
 }
+
+// Прототип: любые скрытые ошибки показываем на экране — на телефоне консоли не видно,
+// а по скриншоту такого сообщения сразу понятно, что и где сломалось.
+window.addEventListener('error', function (e) {
+  toast('Ошибка: ' + (e.message || errText(e.error)) + (e.lineno ? ' (строка ' + e.lineno + ')' : ''), 15000);
+});
+window.addEventListener('unhandledrejection', function (e) { toast('Ошибка: ' + errText(e.reason), 15000); });
 
 document.title = BRAND;
 $('brand').textContent = BRAND;
@@ -1132,9 +1139,11 @@ function drawWave() {
   if (!w || !S.clips.length) return;
   cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
   var g = cv.getContext('2d');
+  if (!g) { toast('Телефон не выделил память под волну звука — перезагрузите страницу.', 10000); return; }
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
   var dur = S.duration, bars = Math.floor(w / 3), per = dur / bars;
+  if (!(dur > 0) || !bars) return;
   g.fillStyle = 'rgba(255,90,78,.14)';
   S.cuts.forEach(function (c) { g.fillRect(c[0] / dur * w, 0, (c[1] - c[0]) / dur * w, h); });
   for (var b = 0; b < bars; b++) {
@@ -1341,13 +1350,20 @@ function startExport() {
   }
   X.ctx.resume();
   primeExportPlayer();
-  var unlock = src.play(); if (unlock && unlock.catch) unlock.catch(function () {});
-  src.pause();
+  // «Пуск» обязан прозвучать прямо в обработчике нажатия (иначе iOS не даст играть со звуком).
+  // А вот «стоп» — только после того, как пуск ДОИГРАЛ запуск: раньше пуск и стоп шли подряд,
+  // и Safari, доделывая этот стоп, отменял уже настоящий пуск первого куска —
+  // «The operation was aborted» (баг 0.3.4 на iPhone).
+  var unlock = src.play();
+  var ready = Promise.resolve(unlock).catch(function () {}).then(function () {
+    src.pause();
+    return new Promise(function (r) { setTimeout(r, 80); });
+  });
   if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { X.lock = l; }, function () {});
 
-  X.cancel = false; X.hiddenAbort = false;
+  X.cancel = false; X.hiddenAbort = false; X.stage = 'подготовка';
   show('export'); setProgress(0);
-  runExport(src).then(finishExport, function (e) {
+  ready.then(function () { return runExport(src); }).then(finishExport, function (e) {
     releaseLock();
     show('edit'); renderEdit();
     if (X.hiddenAbort) { X.hiddenAbort = false; toast('Сборка прервана: приложение свернули. Нажмите «Собрать видео» ещё раз.'); return; }
@@ -1355,7 +1371,21 @@ function startExport() {
     console.error(e);
     toast(e && e.message === 'stalled'
       ? 'Сборка остановилась — похоже, приложение свернули. Попробуйте ещё раз.'
-      : 'Не получилось собрать видео: ' + (e && e.message || e), 20000);
+      : 'Не получилось собрать видео (этап: ' + X.stage + '): ' + errText(e), 20000);
+  });
+}
+
+// Safari отменяет play() (AbortError), если в этот момент доделывает предыдущий стоп или перемотку.
+// Это не ошибка ролика — просто повторяем запуск, пока он не пройдёт.
+function playSafe(el, tries) {
+  tries = tries || 0;
+  var p = el.play();
+  if (!p || !p.then) return Promise.resolve();
+  return p.catch(function (e) {
+    if (e && e.name === 'AbortError' && tries < 5) {
+      return new Promise(function (r) { setTimeout(r, 120); }).then(function () { return playSafe(el, tries + 1); });
+    }
+    throw e;
   });
 }
 
@@ -1373,8 +1403,12 @@ function runExport(src) {
     if (!vw || !vh) throw new Error('нет картинки в видео');
     var k = Math.min(1, 1920 / Math.max(vw, vh));
     var W = Math.round(vw * k / 2) * 2, H = Math.round(vh * k / 2) * 2;
-    var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    // Один холст на все сборки: iOS ограничивает общую память холстов и не спешит её отдавать —
+    // новый холст 1080×1920 на каждую попытку быстро выбирает лимит, и холсты начинают молча пустеть.
+    var cv = X.cv || (X.cv = document.createElement('canvas'));
+    cv.width = W; cv.height = H;
     var g = cv.getContext('2d');
+    if (!g) throw new Error('телефон не выделил память под кадр ' + W + '×' + H);
     function frame() { drawFit(g, src, W, H); if (src._clip) drawSubs(g, W, H, src._clip.offset + src.currentTime); }
     frame();
 
@@ -1400,16 +1434,20 @@ function runExport(src) {
     }
     function next() {
       if (i >= S.segs.length) return Promise.resolve();
-      var sg = S.segs[i];
-      return loadInto(src, sg.clip).then(function () { return seek(src, sg.a); }).then(function () {
+      var sg = S.segs[i], part = ' (кусок ' + (i + 1) + ' из ' + S.segs.length + ')';
+      X.stage = 'загрузка ролика' + part;
+      return loadInto(src, sg.clip).then(function () { X.stage = 'перемотка' + part; return seek(src, sg.a); }).then(function () {
         frame();                             // первым кадром идёт уже нужный, а не хвост прошлого куска
         var now = X.ctx.currentTime;
         X.gain.gain.cancelScheduledValues(now);
         X.gain.gain.setValueAtTime(0, now);
         X.gain.gain.linearRampToValueAtTime(1, now + 0.015);
+        X.stage = 'запуск записи' + part;
         if (rec.state === 'inactive') rec.start(1000); else rec.resume();
-        return src.play();
+        X.stage = 'запуск воспроизведения' + part;
+        return playSafe(src);
       }).then(function () {
+        X.stage = 'запись' + part;
         return playUntil(src, sg.b, function (t) { setProgress((done + Math.max(0, t - sg.a)) / total); });
       }).then(function () {
         src.pause(); rec.pause();
@@ -1419,6 +1457,7 @@ function runExport(src) {
       });
     }
     return next().then(function () {
+      X.stage = 'завершение записи';
       cleanup();
       return stopped;
     }).then(function () {
