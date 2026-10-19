@@ -250,8 +250,9 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 <video id="xvideo" playsinline preload="auto" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
 <div class="toast" id="toast" hidden></div>
 
+<script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.3.1';
+var APP_VERSION = '0.3.2';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -365,7 +366,8 @@ function loadFiles(files, replace) {
     }, function (e) {
       console.error(e);
       // Показываем настоящую причину — без неё на телефоне не понять, что сломалось.
-      toast('Не получилось прочитать звук из ' + label + ': ' + errText(e) + '. Пропускаю его.', 12000);
+      if (e && e.noAudio) toast('В ' + label + ' нет звука — пропускаю его.', 8000);
+      else toast('Не получилось прочитать звук из ' + label + ': ' + errText(e) + '. Пропускаю его.', 12000);
     }).then(next);
   }
   return next().then(function () {
@@ -401,7 +403,43 @@ function decoderCtx() {
   }
   return DEC;
 }
+function decodeSmall(buf) {
+  var ctx = decoderCtx();
+  // decodeAudioData «забирает» буфер даже при неудаче, поэтому на первую попытку отдаём копию.
+  return (ctx ? decodeWith(ctx, buf.slice(0)) : Promise.reject(new Error('no offline context'))).catch(function () {
+    var AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
+    function close() { try { ac.close(); } catch (x) {} }
+    return decodeWith(ac, buf).then(function (a) { close(); return a; }, function (e) { close(); throw e; });
+  });
+}
+
+// Отрезаем «разгон» кодировщика AAC, который плеер не показывает, — иначе паузы и слова съедут на ~45 мс.
+function trimStart(ab, sec) {
+  var n = Math.round(sec * ab.sampleRate);
+  if (!(n > 0) || n >= ab.length || sec > 1) return ab;
+  var ctx = decoderCtx() || new (window.AudioContext || window.webkitAudioContext)();
+  var out = ctx.createBuffer(ab.numberOfChannels, ab.length - n, ab.sampleRate);
+  for (var c = 0; c < ab.numberOfChannels; c++) out.getChannelData(c).set(ab.getChannelData(c).subarray(n));
+  return out;
+}
+
+// Главный путь: из MP4/MOV достаём только звуковую дорожку (audio-track.js) — 1–2 МБ на минуту
+// вместо всего файла. Минута 4K с iPhone весит 300–400 МБ, и целиком Safari её не переваривал.
 function readAudio(f) {
+  var extract = window.ReelistaAudio ? ReelistaAudio.extract(f) : Promise.reject(new Error('нет модуля звука'));
+  return extract.then(function (r) {
+    return decodeSmall(r.adts).then(function (ab) { return trimStart(ab, r.priming); });
+  }).catch(function (first) {
+    if (first && first.noAudio) throw first;           // звука нет совсем — читать целиком бессмысленно
+    console.warn('звуковая дорожка не досталась, читаю файл целиком', first);
+    return readWhole(f).catch(function (e) {
+      throw new Error(errText(first) + ' / ' + errText(e));
+    });
+  });
+}
+
+// Запасной путь — весь файл целиком (не MP4/MOV, звук не AAC, «нарезанный» MP4 из MediaRecorder).
+function readWhole(f) {
   return f.arrayBuffer().then(function (buf) {
     var ctx = decoderCtx();
     if (!ctx) throw new Error('no offline context');
