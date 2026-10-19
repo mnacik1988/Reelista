@@ -17,7 +17,8 @@ id = "30dc9762ffdd46288d54a59621325e25"
 [[ratelimits]]
 name = "RL"
 namespace_id = "2001"
-simple = { limit = 6, period = 60 }
+# 20/мин: телефон распознаёт каждый дубль отдельным запросом, 6 дублей подряд — обычное дело.
+simple = { limit = 20, period = 60 }
 
 [observability]
 enabled = true

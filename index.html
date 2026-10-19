@@ -52,7 +52,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 @keyframes sp{to{transform:rotate(360deg)}}
 
 .stage{position:relative;background:#000;border:.5px solid var(--line);border-radius:18px;overflow:hidden;
-  height:46vh;height:46dvh;display:flex;align-items:center;justify-content:center}
+  height:46vh;height:46dvh;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .stage video{width:100%;height:100%;object-fit:contain;display:block}
 .playbtn{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;
   border:1px solid rgba(255,255,255,.7);background:rgba(14,14,16,.35);display:flex;align-items:center;justify-content:center}
@@ -78,7 +78,8 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 .seg-label{font-size:11px;color:var(--muted);margin:0 0 6px}
 
 .row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:.5px solid var(--line);font-size:14px}
-.sw{appearance:none;-webkit-appearance:none;width:40px;height:24px;border-radius:12px;background:var(--line2);position:relative;margin:0;transition:background .15s}
+.row .link{padding:0}
+.sw{appearance:none;-webkit-appearance:none;width:40px;height:24px;border-radius:12px;background:var(--line2);position:relative;margin:0;transition:background .15s;flex-shrink:0}
 .sw::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .15s}
 .sw:checked{background:var(--accent)}
 .sw:checked::after{left:19px}
@@ -94,10 +95,16 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 .subs-cv{position:absolute;pointer-events:none}
 .sub-opts{padding:12px 0 4px;border-bottom:.5px solid var(--line)}
-.sub-opts .seg{grid-template-columns:repeat(2,1fr)}
 .link{background:none;border:0;color:var(--accent);font-size:14px;padding:12px 0 2px}
 .status{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);padding:10px 0 0}
 .status .spin{width:16px;height:16px}
+
+/* выбор стиля титров: живые превью, нарисованные тем же кодом, что и ролик */
+.styles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.style-chip{background:transparent;border:.5px solid var(--line2);border-radius:12px;padding:0;overflow:hidden;color:var(--muted);font-size:12px}
+.style-chip canvas{display:block;width:100%;height:64px;background:#26262B}
+.style-chip span{display:block;padding:5px 0 6px}
+.style-chip.on{border-color:var(--accent);color:var(--text);box-shadow:inset 0 0 0 .5px var(--accent)}
 
 .text-head{display:flex;align-items:center;justify-content:space-between;margin:4px 0 4px;font-size:17px;font-weight:300}
 .text-head .btn{height:38px;font-size:14px}
@@ -108,8 +115,27 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 .phrase textarea:focus{border-color:var(--accent)}
 .phrase.cut textarea{opacity:.45}
 
+.clip-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:.5px solid var(--line)}
+.clip-row .n{width:24px;height:24px;border-radius:50%;border:.5px solid var(--line2);font-size:11px;color:var(--muted);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.clip-row .name{flex:1;min-width:0;font-size:14px}
+.clip-row .name b{display:block;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clip-row .name small{color:var(--muted);font-size:12px}
+.icon-btn{width:36px;height:36px;border-radius:10px;border:.5px solid var(--line2);background:transparent;color:var(--text);
+  display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.icon-btn:disabled{opacity:.25}
+
+.dup-group{border:.5px solid var(--line2);border-radius:12px;padding:4px 12px 8px;margin:10px 0}
+.take{display:flex;gap:10px;align-items:flex-start;width:100%;padding:10px 0;border:0;border-bottom:.5px solid var(--line);
+  background:none;text-align:left;color:var(--text)}
+.take .mark{width:18px;height:18px;border-radius:50%;border:1px solid var(--line2);flex-shrink:0;margin-top:2px}
+.take.kept .mark{border-color:var(--accent);background:var(--accent)}
+.take .txt{font-size:14px;line-height:1.35}
+.take.cutted .txt{color:var(--muted);text-decoration:line-through}
+.take small{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+
 .toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:488px;margin:0 auto;
-  background:var(--panel);border:.5px solid var(--accent);border-radius:12px;padding:12px 14px;font-size:14px}
+  background:var(--panel);border:.5px solid var(--accent);border-radius:12px;padding:12px 14px;font-size:14px;z-index:10}
 </style>
 </head>
 <body>
@@ -119,14 +145,14 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 </header>
 
 <main>
-  <!-- 1. Выбор ролика -->
+  <!-- 1. Выбор роликов -->
   <section id="scr-start" class="center">
     <div class="vf"><i></i><i></i><i></i><i></i><span class="dot"></span></div>
     <h1>Паузы вырежутся сами</h1>
-    <p class="muted">Выберите ролик, где вы говорите в камеру. Приложение найдёт тишину и уберёт её.</p>
+    <p class="muted">Выберите ролик или сразу несколько дублей — приложение склеит их по порядку, уберёт паузы и повторы.</p>
     <label class="btn primary" for="file">Выбрать видео</label>
-    <input id="file" class="vh" type="file" accept="video/*">
-    <p class="tiny">Ролики до 3 минут. Всё считается прямо на телефоне — видео никуда не отправляется.</p>
+    <input id="file" class="vh" type="file" accept="video/*" multiple>
+    <p class="tiny">Каждый файл до 4 минут. Монтаж считается прямо на телефоне, для титров на сервер уходит только звук.</p>
   </section>
 
   <!-- 2. Анализ звука -->
@@ -160,10 +186,13 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
       <button data-l="soft">Мягко</button><button data-l="mid">Средне</button><button data-l="hard">Жёстко</button>
     </div>
     <label class="row"><span>Пропускать паузы в просмотре</span><input type="checkbox" class="sw" id="skip" checked></label>
+    <div class="row"><span id="clips-label">1 ролик</span><button class="link" id="clips-open">Порядок и добавить</button></div>
+    <label class="row"><span>Убирать дубли</span><input type="checkbox" class="sw" id="dups"></label>
+    <div class="row" id="dups-row" hidden><span id="dups-info"></span><button class="link" id="dups-open">Выбрать</button></div>
     <label class="row"><span>Титры</span><input type="checkbox" class="sw" id="subs"></label>
-    <div class="status" id="subs-status" hidden><div class="spin"></div><span>Распознаю речь…</span></div>
+    <div class="status" id="tr-status" hidden><div class="spin"></div><span id="tr-text">Распознаю речь…</span></div>
     <div class="sub-opts" id="subs-opts" hidden>
-      <div class="seg" id="styles"><button data-s="studio">Студия</button><button data-s="karaoke">Караоке</button></div>
+      <div class="styles" id="styles"></div>
       <button class="link" id="edit-text">Править текст</button>
     </div>
 
@@ -173,10 +202,26 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
     </div>
   </section>
 
-  <!-- 3а. Правка текста титров -->
+  <!-- 3а. Ролики: порядок, добавить, убрать -->
+  <section id="scr-clips" hidden>
+    <div class="text-head"><span>Ролики</span><button class="btn primary" id="clips-done">Готово</button></div>
+    <p class="tiny" style="margin:0 0 6px;max-width:none">Склеиваются сверху вниз. Порядок меняется стрелками.</p>
+    <div id="clips-list"></div>
+    <label class="btn ghost" for="file-add" style="margin-top:16px">Добавить ещё</label>
+    <input id="file-add" class="vh" type="file" accept="video/*" multiple>
+  </section>
+
+  <!-- 3б. Дубли -->
+  <section id="scr-dups" hidden>
+    <div class="text-head"><span>Дубли</span><button class="btn primary" id="dups-done">Готово</button></div>
+    <p class="tiny" style="margin:0 0 6px;max-width:none">Одна фраза сказана несколько раз. Отмеченный дубль останется, остальные вырежутся. Тап — выбрать другой.</p>
+    <div id="dups-list"></div>
+  </section>
+
+  <!-- 3в. Правка текста титров -->
   <section id="scr-text" hidden>
     <div class="text-head"><span>Текст титров</span><button class="btn primary" id="text-done">Готово</button></div>
-    <p class="tiny" style="margin:0 0 6px;max-width:none">Исправьте ошибки распознавания — время слов подстроится само. Бледные фразы попали в вырезанные паузы.</p>
+    <p class="tiny" style="margin:0 0 6px;max-width:none">Исправьте ошибки распознавания — время слов подстроится само. Бледные фразы попали в вырезанные места.</p>
     <div id="phrases"></div>
   </section>
 
@@ -206,7 +251,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 <div class="toast" id="toast" hidden></div>
 
 <script>
-var APP_VERSION = '0.2.0';
+var APP_VERSION = '0.3.0';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -220,15 +265,29 @@ var HOP = 0.01;          // шаг анализа звука, секунды
 var MIN_SPEECH = 6;      // всплеск короче 60 мс — щелчок, а не речь
 var MAX_FILE_MB = 700;
 var API = 'https://reelista.mnacik1988.workers.dev';   // распознавание речи (worker/index.js)
-var ACCENT = '#FF5A4E';
+var ACCENT = '#FF5A4E', YELLOW = '#FFE14D';
 
-var S = { file: null, url: null, duration: 0, db: null, floor: 0, peak: 0, thr: 0,
-          level: 'mid', keep: [], cuts: [], skip: true, out: null, outUrl: null,
-          pcm: null, words: null, phrases: [], units: [], subsOn: false, style: 'studio', tr: null };
+// Стили титров. group — [символов, слов] в одном показе; fs — размер от короткой стороны кадра;
+// y — центр блока по высоте; hl — как выделять звучащее слово.
+var STYLES = {
+  studio:  { label: 'Студия',  group: [36, 8],  fs: .058, weight: 600, y: .78, hl: 'color', color: ACCENT, stroke: .13 },
+  karaoke: { label: 'Караоке', group: [18, 3],  fs: .085, weight: 800, y: .70, hl: 'plate', plate: ACCENT, stroke: .16 },
+  word:    { label: 'Слово',   group: [40, 1],  fs: .13,  weight: 800, y: .62, hl: 'none', stroke: .16 },
+  caps:    { label: 'Капс',    group: [16, 3],  fs: .08,  weight: 900, y: .70, hl: 'color', color: YELLOW, stroke: .24, upper: true },
+  marker:  { label: 'Маркер',  group: [22, 4],  fs: .07,  weight: 800, y: .72, hl: 'plate', plate: YELLOW, plateText: '#111', stroke: .14 },
+  minimal: { label: 'Минимал', group: [42, 10], fs: .042, weight: 500, y: .88, hl: 'none', box: true }
+};
+var STYLE_ORDER = ['studio', 'karaoke', 'word', 'caps', 'marker', 'minimal'];
+
+// Всё приложение живёт на ОБЩЕЙ шкале: ролики стоят друг за другом, offset — где начинается каждый.
+var S = { clips: [], duration: 0, level: 'mid', skip: true, subsOn: false, dupsOn: true, style: 'studio',
+          pauseCuts: [], cuts: [], keep: [], segs: [], words: null, phrases: [], units: [], groups: [],
+          trBusy: null, out: null, outUrl: null };
+var clipSeq = 0;
 
 function $(id) { return document.getElementById(id); }
 function show(name) {
-  ['start', 'busy', 'edit', 'text', 'export', 'done'].forEach(function (n) { $('scr-' + n).hidden = n !== name; });
+  ['start', 'busy', 'edit', 'clips', 'dups', 'text', 'export', 'done'].forEach(function (n) { $('scr-' + n).hidden = n !== name; });
 }
 function fmt(t) {
   t = Math.max(0, t || 0);
@@ -257,48 +316,58 @@ document.title = BRAND;
 $('brand').textContent = BRAND;
 $('ver').textContent = 'v' + APP_VERSION;
 S.level = LEVELS[store('level')] ? store('level') : 'mid';
-S.style = store('style') === 'karaoke' ? 'karaoke' : 'studio';
+S.style = STYLES[store('style')] ? store('style') : 'studio';
 S.subsOn = store('subs') === '1';
+S.dupsOn = store('dups') !== '0';
 $('subs').checked = S.subsOn;
+$('dups').checked = S.dupsOn;
 
 /* ---------- Загрузка и анализ ---------- */
 
 $('file').addEventListener('change', function () {
-  var f = this.files && this.files[0];
-  this.value = '';
-  if (f) loadFile(f);
+  var fs = [].slice.call(this.files || []); this.value = '';
+  if (fs.length) loadFiles(fs, true);
+});
+$('file-add').addEventListener('change', function () {
+  var fs = [].slice.call(this.files || []); this.value = '';
+  if (fs.length) loadFiles(fs, false);
 });
 
-function loadFile(f) {
-  if (f.size > MAX_FILE_MB * 1024 * 1024) {
-    toast('Файл больше ' + MAX_FILE_MB + ' МБ. Снимите в 1080p или возьмите ролик покороче.');
-    return Promise.resolve();
-  }
+// Файлы читаем по одному: на iPhone несколько видео разом в памяти — верный вылет вкладки.
+function loadFiles(files, replace) {
+  var big = files.filter(function (f) { return f.size > MAX_FILE_MB * 1048576; });
+  if (big.length) toast('Пропускаю файлы больше ' + MAX_FILE_MB + ' МБ — снимите в 1080p или покороче.');
+  files = files.filter(function (f) { return big.indexOf(f) < 0; });
+  if (!files.length) return Promise.resolve();
   stopPreview();
-  S.file = f;
-  S.words = null; S.phrases = []; S.units = []; S.tr = null;
-  if (S.url) URL.revokeObjectURL(S.url);
-  S.url = URL.createObjectURL(f);
-  $('video').src = S.url;
-  $('xvideo').src = S.url;
+  if (replace) {
+    S.clips.forEach(function (c) { URL.revokeObjectURL(c.url); });
+    S.clips = []; S.words = null; S.groups = [];
+    v._clip = null; $('xvideo')._clip = null;
+  }
   show('busy');
-  $('busy-text').textContent = 'Слушаю паузы…';
-
-  return f.arrayBuffer()
-    .then(decodeAudio)
-    .then(function (audio) {
-      analyse(audio);
-      S.pcm = to16k(audio);   // звук для распознавания: 16 кГц моно, ~2 МБ на минуту
-      buildSegments();
-      show('edit');
-      renderEdit();
-      if (S.subsOn) transcribe();
-    })
-    .catch(function (e) {
+  var i = 0;
+  function next() {
+    if (i >= files.length) return Promise.resolve();
+    var f = files[i++];
+    $('busy-text').textContent = 'Слушаю паузы…' + (files.length > 1 ? ' ' + i + ' из ' + files.length : '');
+    return f.arrayBuffer().then(decodeAudio).then(function (ab) {
+      var c = { id: ++clipSeq, name: f.name || ('Ролик ' + clipSeq), url: URL.createObjectURL(f), words: null };
+      analyseClip(c, ab);
+      c.pcm = to16k(ab);        // звук для распознавания: 16 кГц моно, ~2 МБ на минуту
+      S.clips.push(c);
+    }, function (e) {
       console.error(e);
-      show('start');
-      toast('Не получилось прочитать звук из этого видео. Попробуйте другой ролик.');
-    });
+      toast('Не получилось прочитать звук из «' + (f.name || 'видео') + '» — пропускаю его.');
+    }).then(next);
+  }
+  return next().then(function () {
+    if (!S.clips.length) { show('start'); return; }
+    afterClipsChange();
+    if (replace) { show('edit'); setPreviewTime(0); renderEdit(); }
+    else { renderClips(); show('clips'); }
+    ensureTranscripts();
+  });
 }
 
 function decodeAudio(buf) {
@@ -312,48 +381,60 @@ function decodeAudio(buf) {
           function (e) { try { ctx.close(); } catch (x) {} throw e; });
 }
 
-// Громкость в децибелах на каждые 10 мс + уровни «тишины» и «речи» именно этого ролика.
-function analyse(ab) {
+// Громкость каждые 10 мс; порог «тишина/речь» у КАЖДОГО ролика свой — дубли могли сниматься в разном шуме.
+function analyseClip(c, ab) {
   var sr = ab.sampleRate, win = Math.round(sr * HOP), n = Math.floor(ab.length / win);
-  var ch = [];
-  for (var c = 0; c < ab.numberOfChannels; c++) ch.push(ab.getChannelData(c));
-  var db = new Float32Array(n), nc = ch.length;
-  for (var i = 0; i < n; i++) {
+  var ch = [], nc = ab.numberOfChannels, i, j, k;
+  for (k = 0; k < nc; k++) ch.push(ab.getChannelData(k));
+  var db = new Float32Array(n);
+  for (i = 0; i < n; i++) {
     var sum = 0, o = i * win;
-    for (var j = 0; j < win; j++) {
+    for (j = 0; j < win; j++) {
       var x = 0;
-      for (c = 0; c < nc; c++) x += ch[c][o + j];
+      for (k = 0; k < nc; k++) x += ch[k][o + j];
       x /= nc; sum += x * x;
     }
     db[i] = 10 * Math.log10(sum / win + 1e-12);
   }
   var sorted = Float32Array.from(db).sort();
-  S.db = db;
-  S.duration = ab.duration;
-  S.floor = sorted[Math.floor(n * 0.10)] || -120;
-  S.peak = sorted[Math.floor(n * 0.95)] || -120;
-  // Порог подстраивается под ролик: шумная улица и тихая комната режутся одинаково честно.
-  S.thr = S.floor + (S.peak - S.floor) * 0.30;
+  var floor = sorted[Math.floor(n * 0.10)] || -120, peak = sorted[Math.floor(n * 0.95)] || -120;
+  var thr = floor + (peak - floor) * 0.30, range = peak - floor + 1e-6;
+  c.dur = ab.duration;
+  c.flat = !n || peak - floor < 6;   // ровный звук: речь от паузы не отличить
+  c.lvl = new Float32Array(n);
+  c.sp = new Uint8Array(n);
+  for (i = 0; i < n; i++) {
+    c.lvl[i] = Math.max(0, Math.min(1, (db[i] - floor) / range));
+    c.sp[i] = db[i] >= thr ? 1 : 0;
+  }
+  for (i = 0; i < n;) {
+    if (c.sp[i]) { var s = i; while (i < n && c.sp[i]) i++; if (i - s < MIN_SPEECH) for (j = s; j < i; j++) c.sp[j] = 0; }
+    else i++;
+  }
 }
 
-function buildSegments() {
-  var L = LEVELS[S.level], db = S.db, n = db ? db.length : 0, dur = S.duration;
-  S.cuts = []; S.keep = [[0, dur]];
-  // Звук ровный (музыка, шум, тишина) — отличить речь от паузы нельзя, ничего не режем.
-  if (!n || S.peak - S.floor < 6) return;
+function layoutClips() {
+  var t = 0;
+  S.clips.forEach(function (c) { c.offset = t; t += c.dur; });
+  S.duration = t;
+}
+function clipAt(T) {
+  var c = S.clips[0];
+  for (var i = 1; i < S.clips.length; i++) if (S.clips[i].offset <= T) c = S.clips[i];
+  return c;
+}
+function clipById(id) { for (var i = 0; i < S.clips.length; i++) if (S.clips[i].id === id) return S.clips[i]; return null; }
 
-  var sp = new Uint8Array(n), k, j, s;
-  for (k = 0; k < n; k++) sp[k] = db[k] >= S.thr ? 1 : 0;
-  for (k = 0; k < n;) {
-    if (sp[k]) { s = k; while (k < n && sp[k]) k++; if (k - s < MIN_SPEECH) for (j = s; j < k; j++) sp[j] = 0; }
-    else k++;
-  }
+/* ---------- Что вырезать ---------- */
+
+function pauseCutsFor(c) {
+  var L = LEVELS[S.level], sp = c.sp, n = sp.length, cuts = [], k, s;
+  if (c.flat) return cuts;
   var first = -1, last = -1;
   for (k = 0; k < n; k++) if (sp[k]) { if (first < 0) first = k; last = k; }
-  if (first < 0) return;
-
-  var cuts = [], minF = Math.round(L.minPause / HOP);
-  // Начало и конец (тянулись к кнопке, молчали в конце) режем при любой длине.
+  if (first < 0) return cuts;
+  var minF = Math.round(L.minPause / HOP);
+  // Начало и конец каждого дубля (тянулись к кнопке, молчали в конце) режем при любой длине.
   var headEnd = first * HOP - L.pad;
   if (headEnd > 0.05) cuts.push([0, headEnd]);
   for (k = first; k <= last;) {
@@ -366,13 +447,76 @@ function buildSegments() {
     } else k++;
   }
   var tail = (last + 1) * HOP + L.pad;
-  if (dur - tail > 0.05) cuts.push([tail, dur]);
+  if (c.dur - tail > 0.05) cuts.push([tail, c.dur]);
+  return cuts.map(function (x) { return [x[0] + c.offset, x[1] + c.offset]; });
+}
 
+function rebuild() {
+  S.pauseCuts = [].concat.apply([], S.clips.map(pauseCutsFor));
+  rebuildCuts();
+}
+
+// Границы дубля от Whisper неточны: конец слова он ставит раньше, чем стихает звук (замер:
+// «длинное…» по Whisper до 2.82 с, по звуку до 3.35 с — оставался огрызок слога). Поэтому
+// вырез дубля дотягиваем ПО ЗВУКУ: вперёд — до начала следующей речи, назад — до конца
+// предыдущей (если дубль начинается в тишине). Минус запас у слов, как у обычных пауз.
+// Тянем вперёд, только если за дублем в пределах 0.8 с есть настоящая тишина (≥ 0.15 с):
+// если человек оборвал фразу и сразу, без паузы, начал заново — режем по границе Whisper,
+// иначе звуковой поиск прошёл бы сквозь хороший дубль.
+function dupCut(t) {
+  var c = clipAt(t.s), sp = c.sp, n = sp.length, pad = LEVELS[S.level].pad;
+  var ks = Math.max(0, Math.min(n - 1, Math.floor((t.s - c.offset) / HOP)));
+  var ke = Math.max(0, Math.min(n - 1, Math.floor((t.e - c.offset) / HOP)));
+  var next = -1;
+  for (var j = ke; j < Math.min(n, ke + 80); j++) {
+    if (sp[j]) continue;
+    var q = j; while (q < n && !sp[q]) q++;
+    if (q - j >= 15 || q >= n) { next = q; break; }
+    j = q;
+  }
+  var end = next < 0 ? t.e - c.offset + 0.03 : next >= n ? c.dur : Math.max(t.e - c.offset, next * HOP - pad);
+  var start = t.s - c.offset, k;
+  if (!sp[ks]) {
+    k = ks;
+    while (k > 0 && !sp[k]) k--;
+    start = k <= 0 ? 0 : Math.min(start, (k + 1) * HOP + pad);
+  }
+  return [c.offset + start, c.offset + end];
+}
+
+function rebuildCuts() {
+  var cuts = S.pauseCuts.slice();
+  if (S.dupsOn) S.groups.forEach(function (g) {
+    if (g.ignored) return;
+    g.takes.forEach(function (t, i) { if (i !== g.keep) cuts.push(dupCut(t)); });
+  });
+  cuts.sort(function (a, b) { return a[0] - b[0]; });
+  var merged = [];
+  cuts.forEach(function (c) {
+    var a = Math.max(0, c[0]), b = Math.min(S.duration, c[1]);
+    if (b <= a) return;
+    var last = merged[merged.length - 1];
+    if (last && a <= last[1]) last[1] = Math.max(last[1], b); else merged.push([a, b]);
+  });
+  S.cuts = merged;
+
+  // Оставшееся — дополнение к вырезам, разрезанное по границам роликов (кусок не может жить в двух файлах).
   var keep = [], t = 0;
-  cuts.forEach(function (c) { if (c[0] - t > 0.01) keep.push([t, c[0]]); t = c[1]; });
-  if (dur - t > 0.01) keep.push([t, dur]);
-  S.cuts = cuts;
-  S.keep = keep.length ? keep : [[0, dur]];
+  merged.forEach(function (c) { if (c[0] - t > 0.01) keep.push([t, c[0]]); t = c[1]; });
+  if (S.duration - t > 0.01) keep.push([t, S.duration]);
+  if (!keep.length) keep = [[0, S.duration]];
+  var split = [];
+  keep.forEach(function (k) {
+    var a = k[0];
+    S.clips.forEach(function (c) { if (c.offset > a + 0.01 && c.offset < k[1] - 0.01) { split.push([a, c.offset]); a = c.offset; } });
+    split.push([a, k[1]]);
+  });
+  S.keep = split.filter(function (k) { return k[1] - k[0] > 0.05; });
+  S.segs = S.keep.map(function (k) {
+    var c = clipAt((k[0] + k[1]) / 2);
+    return { clip: c, a: k[0] - c.offset, b: k[1] - c.offset };
+  });
+  buildUnits();
 }
 
 function keptLength() { return S.keep.reduce(function (s, k) { return s + k[1] - k[0]; }, 0); }
@@ -381,8 +525,18 @@ function nextKeepStart(t) {
   for (var i = 0; i < S.keep.length; i++) if (S.keep[i][1] > t + 0.01) return Math.max(t, S.keep[i][0]);
   return null;
 }
+function cutBetween(a, b) {
+  for (var i = 0; i < S.cuts.length; i++) if (S.cuts[i][0] < b && S.cuts[i][1] > a) return true;
+  return false;
+}
 
-/* ---------- Титры: распознавание ---------- */
+function afterClipsChange() {
+  layoutClips();
+  if (S.clips.every(function (c) { return c.words; })) syncWords(); else { S.words = null; S.groups = []; S.phrases = []; }
+  rebuild();
+}
+
+/* ---------- Распознавание речи ---------- */
 
 // Моно 16 кГц: усредняем исходные отсчёты в каждом новом интервале (заодно срезает высокие частоты).
 function to16k(ab) {
@@ -393,8 +547,7 @@ function to16k(ab) {
   for (var i = 0; i < n; i++) {
     var a = Math.floor(i * ratio), b = Math.max(a + 1, Math.floor((i + 1) * ratio)), sum = 0;
     for (var j = a; j < b; j++) for (c = 0; c < nc; c++) sum += ch[c][j] || 0;
-    var x = sum / ((b - a) * nc);
-    out[i] = Math.max(-32768, Math.min(32767, Math.round(x * 32767)));
+    out[i] = Math.max(-32768, Math.min(32767, Math.round(sum / ((b - a) * nc) * 32767)));
   }
   return out;
 }
@@ -411,39 +564,53 @@ function makeWav(pcm) {
 }
 
 var TR_ERRORS = {
-  rate_limited: 'Слишком много запросов. Подождите минуту и включите титры снова.',
-  too_large: 'Ролик слишком длинный для титров — до 4 минут.',
+  rate_limited: 'Слишком много запросов. Подождите минуту и включите снова.',
+  too_large: 'Один из роликов длиннее 4 минут — для него нет распознавания.',
   daily_cap: 'Распознавание на сегодня перегружено. Попробуйте завтра.',
   forbidden: 'Сервер не принял запрос с этой страницы.'
 };
 
-function transcribe() {
-  if (S.words || !S.pcm) return Promise.resolve();
-  if (S.tr) return S.tr;
-  $('subs-status').hidden = false;
-  var file = S.file;
-  S.tr = fetch(API + '/transcribe', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: makeWav(S.pcm) })
+function setTrStatus(text) {
+  $('tr-status').hidden = !text;
+  if (text) $('tr-text').textContent = text;
+}
+
+// Распознаём ролики по одному: так не упираемся в лимит частоты и видно прогресс.
+function ensureTranscripts() {
+  if (!(S.subsOn || S.dupsOn) || !S.clips.length) return Promise.resolve();
+  if (S.trBusy) return S.trBusy;
+  var todo = S.clips.filter(function (c) { return !c.words; });
+  if (!todo.length) return Promise.resolve();
+  var failed = null;
+  S.trBusy = todo.reduce(function (p, c, i) {
+    return p.then(function () {
+      if (failed || S.clips.indexOf(c) < 0) return;        // ролик убрали, пока ждали
+      setTrStatus('Распознаю речь…' + (todo.length > 1 ? ' ' + (i + 1) + ' из ' + todo.length : ''));
+      return transcribeClip(c).catch(function (e) { failed = e; });
+    });
+  }, Promise.resolve()).then(function () {
+    S.trBusy = null; setTrStatus(null);
+    if (failed) {
+      console.error(failed);
+      toast(TR_ERRORS[failed.message] || 'Не удалось распознать речь: проверьте интернет и включите снова.');
+    }
+    afterClipsChange();
+    renderEdit();
+    if (!failed && S.clips.some(function (c) { return !c.words; })) return ensureTranscripts();
+  });
+  return S.trBusy;
+}
+
+// Язык телефона — только чтобы сервер выбрал подсказку «пиши дословно, с повторами»; язык речи Whisper определит сам.
+var HINT = (navigator.language || '').slice(0, 2).toLowerCase();
+function transcribeClip(c) {
+  return fetch(API + '/transcribe?hint=' + encodeURIComponent(HINT), { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: makeWav(c.pcm) })
     .then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         if (!r.ok) throw new Error(j.error || ('http ' + r.status));
-        return j;
+        c.words = cleanWords(j.words || []);
       });
-    })
-    .then(function (j) {
-      if (file !== S.file) return;            // пока ждали, выбрали другой ролик
-      S.words = cleanWords(j.words || []);
-      S.phrases = groupWords(S.words, 36, 8, false);
-      buildUnits();
-      if (!S.words.length) toast('Речь не распознана — титров не будет.');
-    })
-    .catch(function (e) {
-      if (file !== S.file) return;
-      console.error(e);
-      S.subsOn = false; $('subs').checked = false; store('subs', '0');
-      toast(TR_ERRORS[e.message] || 'Не удалось распознать речь: проверьте интернет и попробуйте снова.');
-    })
-    .then(function () { S.tr = null; $('subs-status').hidden = true; renderSubsUi(); drawOverlay(); });
-  return S.tr;
+    });
 }
 
 // Whisper отдаёт тире и знаки отдельными «словами» — оставляем только слова с буквами или цифрами.
@@ -460,25 +627,165 @@ function cleanWords(list) {
   return out;
 }
 
-/* ---------- Титры: группировка и отрисовка ---------- */
-
-function cutBetween(a, b) {
-  for (var i = 0; i < S.cuts.length; i++) if (S.cuts[i][0] < b && S.cuts[i][1] > a) return true;
-  return false;
+// Слова роликов (время внутри файла) → слова на общей шкале.
+function syncWords() {
+  var all = [];
+  S.clips.forEach(function (c) {
+    c.words.forEach(function (w) { all.push({ w: w.w, c: c.id, s: c.offset + w.s, e: c.offset + w.e }); });
+  });
+  S.words = all;
+  S.phrases = groupWords(all, 36, 8, false);
+  computeGroups();
 }
 
-var CAPITAL = /^[A-ZА-ЯЁІЇЄҐ]/;
-var SHORT = /^[a-zа-яёіїєґ]{1,2}$/;   // «в», «и», «на», «не» — не оставляем висеть в конце строки
+/* ---------- Дубли ---------- */
 
+var CAPITAL = /^[A-ZА-ЯЁІЇЄҐ]/;
+function stem(w) {
+  // Сравниваем по началу слова: «ошибка», «ошибки», «ошибку» — одно и то же.
+  return w.toLowerCase().replace(/ё/g, 'е').replace(/[^0-9a-zа-яіїєґà-ɏ]/g, '').slice(0, 5);
+}
+
+function sentencesOf(words) {
+  var out = [], cur = null;
+  words.forEach(function (w) {
+    var prev = cur && cur.words[cur.words.length - 1];
+    if (!cur || w.c !== prev.c || w.s - prev.e > 0.6 || /[.!?…]$/.test(prev.w) ||
+        (CAPITAL.test(w.w) && cur.words.length >= 2)) { cur = { words: [] }; out.push(cur); }
+    cur.words.push(w);
+  });
+  out.forEach(function (s) {
+    s.s = s.words[0].s; s.e = s.words[s.words.length - 1].e;
+    s.toks = s.words.map(function (w) { return stem(w.w); }).filter(Boolean);
+    s.text = s.words.map(function (w) { return w.w; }).join(' ');
+  });
+  return out;
+}
+
+function lcs(a, b) {
+  var prev = new Array(b.length + 1).fill(0);
+  for (var i = 0; i < a.length; i++) {
+    var cur = [0];
+    for (var j = 0; j < b.length; j++) cur[j + 1] = a[i] === b[j] ? prev[j] + 1 : Math.max(prev[j + 1], cur[j]);
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// Две фразы — дубли, если короткая почти целиком (по порядку) входит в длинную.
+// «Первая ошибка…» + «Первая ошибка — длинное вступление» = дубль-обрыв и полный дубль.
+function computeGroups() {
+  var sents = sentencesOf(S.words), n = sents.length, parent = sents.map(function (_, i) { return i; });
+  function find(x) { while (parent[x] !== x) x = parent[x] = parent[parent[x]]; return x; }
+  for (var i = 0; i < n; i++) {
+    for (var j = i + 1; j < n && j <= i + 12; j++) {
+      var a = sents[i].toks, b = sents[j].toks;
+      if (a.length < 2 || b.length < 2) continue;
+      var l = lcs(a, b);
+      if (l >= 2 && l / Math.min(a.length, b.length) >= 0.6 && l / Math.max(a.length, b.length) >= 0.35) parent[find(j)] = find(i);
+    }
+  }
+  var map = {};
+  sents.forEach(function (s, i) { var r = find(i); (map[r] = map[r] || []).push(s); });
+  S.groups = Object.keys(map).map(function (k) { return map[k]; }).filter(function (t) { return t.length > 1; })
+    .map(function (takes) {
+      // Оставляем ПОСЛЕДНИЙ полный дубль: обычно его и записывали «начисто».
+      var max = Math.max.apply(null, takes.map(function (t) { return t.toks.length; })), keep = 0;
+      takes.forEach(function (t, i) { if (t.toks.length >= 0.7 * max) keep = i; });
+      return { takes: takes, keep: keep, ignored: false };
+    })
+    .sort(function (x, y) { return x.takes[0].s - y.takes[0].s; });
+}
+
+function cutTakes() {
+  if (!S.dupsOn) return 0;
+  return S.groups.reduce(function (n, g) { return n + (g.ignored ? 0 : g.takes.length - 1); }, 0);
+}
+
+function renderDups() {
+  var box = $('dups-list');
+  box.innerHTML = '';
+  S.groups.forEach(function (g) {
+    var el = document.createElement('div');
+    el.className = 'dup-group';
+    g.takes.forEach(function (t, ti) {
+      var b = document.createElement('button'), c = clipAt(t.s);
+      b.className = 'take ' + (g.ignored || ti === g.keep ? 'kept' : 'cutted');
+      b.innerHTML = '<span class="mark"></span><span><span class="txt"></span><small></small></span>';
+      b.querySelector('.txt').textContent = t.text;
+      b.querySelector('small').textContent = (S.clips.length > 1 ? 'Ролик ' + (S.clips.indexOf(c) + 1) + ' · ' : '') + fmt(t.s - c.offset);
+      b.addEventListener('click', function () { g.keep = ti; g.ignored = false; renderDups(); });
+      el.appendChild(b);
+    });
+    var ign = document.createElement('button');
+    ign.className = 'link';
+    ign.textContent = g.ignored ? 'Всё-таки дубли' : 'Это не дубли — оставить все';
+    ign.addEventListener('click', function () { g.ignored = !g.ignored; renderDups(); });
+    el.appendChild(ign);
+    box.appendChild(el);
+  });
+}
+
+$('dups').addEventListener('change', function () {
+  S.dupsOn = this.checked; store('dups', S.dupsOn ? '1' : '0');
+  rebuildCuts(); renderEdit();
+  if (S.dupsOn) ensureTranscripts();
+});
+$('dups-open').addEventListener('click', function () { stopPreview(); renderDups(); show('dups'); window.scrollTo(0, 0); });
+$('dups-done').addEventListener('click', function () { rebuildCuts(); show('edit'); renderEdit(); });
+
+/* ---------- Ролики ---------- */
+
+function renderClips() {
+  var box = $('clips-list');
+  box.innerHTML = '';
+  S.clips.forEach(function (c, i) {
+    var row = document.createElement('div');
+    row.className = 'clip-row';
+    row.innerHTML = '<span class="n"></span><span class="name"><b></b><small></small></span>' +
+      '<button class="icon-btn" aria-label="Выше">↑</button><button class="icon-btn" aria-label="Ниже">↓</button>' +
+      '<button class="icon-btn" aria-label="Убрать">✕</button>';
+    row.querySelector('.n').textContent = i + 1;
+    row.querySelector('b').textContent = c.name;
+    row.querySelector('small').textContent = fmt(c.dur);
+    var btns = row.querySelectorAll('button');
+    btns[0].disabled = i === 0;
+    btns[1].disabled = i === S.clips.length - 1;
+    btns[0].addEventListener('click', function () { moveClip(i, -1); });
+    btns[1].addEventListener('click', function () { moveClip(i, 1); });
+    btns[2].addEventListener('click', function () { removeClip(i); });
+    box.appendChild(row);
+  });
+}
+function moveClip(i, d) {
+  var j = i + d, t = S.clips[i];
+  S.clips[i] = S.clips[j]; S.clips[j] = t;
+  afterClipsChange(); renderClips();
+}
+function removeClip(i) {
+  var c = S.clips[i];
+  if (v._clip === c) v._clip = null;
+  if ($('xvideo')._clip === c) $('xvideo')._clip = null;
+  URL.revokeObjectURL(c.url);
+  S.clips.splice(i, 1);
+  if (!S.clips.length) { S.words = null; show('start'); return; }
+  afterClipsChange(); renderClips();
+}
+$('clips-open').addEventListener('click', function () { stopPreview(); renderClips(); show('clips'); window.scrollTo(0, 0); });
+$('clips-done').addEventListener('click', function () { show('edit'); setPreviewTime(0); renderEdit(); });
+
+/* ---------- Титры: группировка и отрисовка ---------- */
+
+var SHORT = /^[a-zа-яёіїєґ]{1,2}$/;   // «в», «и», «на», «не» — не оставляем висеть в конце строки
 function chars(ws) { return ws.reduce(function (s, w) { return s + w.w.length + 1; }, -1); }
 
 // Режем речь на куски для показа. Сначала на предложения (пауза, знак конца, заглавная буква,
-// вырез монтажа), потом длинное предложение — на РАВНЫЕ части, а не «сколько влезло + огрызок».
+// вырез монтажа, другой ролик), потом длинное — на РАВНЫЕ части, а не «сколько влезло + огрызок».
 function groupWords(words, maxChars, maxWords, splitCuts) {
   var sentences = [], cur = null;
   words.forEach(function (w) {
     var prev = cur && cur[cur.length - 1];
-    var brk = !cur || w.s - prev.e > 0.45 || /[.!?…]$/.test(prev.w) ||
+    var brk = !cur || w.c !== prev.c || w.s - prev.e > 0.45 || /[.!?…]$/.test(prev.w) ||
               (CAPITAL.test(w.w) && cur.length >= 2) || (splitCuts && cutBetween(prev.e, w.s));
     if (brk) { cur = []; sentences.push(cur); }
     cur.push(w);
@@ -489,7 +796,7 @@ function groupWords(words, maxChars, maxWords, splitCuts) {
     var n = Math.max(Math.ceil(chars(sent) / maxChars), Math.ceil(sent.length / maxWords));
     var parts = [], target = chars(sent) / n, part = [];
     sent.forEach(function (w, i) {
-      var left = sent.length - i;                       // сколько слов ещё не разложено
+      var left = sent.length - i;
       if (part.length && parts.length < n - 1 &&
           (chars(part.concat(w)) > target * 1.15 || part.length >= maxWords) && left >= n - 1 - parts.length) {
         parts.push(part); part = [];
@@ -522,13 +829,13 @@ function keptPart(w) {
     var a = Math.max(w.s, S.keep[i][0]), b = Math.min(w.e, S.keep[i][1]);
     if (b - a > 0.08) { s = a; e = b; }
   }
-  return s === null ? null : { w: w.w, s: s, e: e };
+  return s === null ? null : { w: w.w, c: w.c, s: s, e: e };
 }
 
 function buildUnits() {
   if (!S.words) { S.units = []; return; }
-  var kept = S.words.map(keptPart).filter(Boolean);
-  S.units = S.style === 'karaoke' ? groupWords(kept, 18, 3, true) : groupWords(kept, 36, 8, true);
+  var kept = S.words.map(keptPart).filter(Boolean), g = STYLES[S.style].group;
+  S.units = groupWords(kept, g[0], g[1], true);
 }
 
 function unitAt(t) {
@@ -546,47 +853,45 @@ function roundRect(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
 
-// Один рисовальщик и для просмотра, и для сборки — что видно на экране, то и попадёт в ролик.
-function drawSubs(g, W, H, t) {
-  if (!S.subsOn || !S.units.length) return;
-  var u = unitAt(t);
-  if (!u) return;
-  var karaoke = S.style === 'karaoke', base = Math.min(W, H);
-  var fs = Math.round(base * (karaoke ? 0.085 : 0.058));
-  var font = (karaoke ? '800 ' : '600 ') + fs + 'px -apple-system, "SF Pro Display", "Segoe UI", Roboto, sans-serif';
+// Один рисовальщик для превью стилей, просмотра и сборки — что видно на экране, то и в ролике.
+function drawUnit(g, W, H, words, active, st, base, cy) {
+  var fs = Math.round(base * st.fs), plate = st.hl === 'plate';
   g.save();
-  g.font = font; g.textBaseline = 'middle'; g.lineJoin = 'round';
-  // В караоке плашке нужен воздух, иначе она налезает на соседние слова.
-  var space = g.measureText(' ').width + (karaoke ? fs * 0.3 : 0), maxW = W * 0.86, lineH = fs * (karaoke ? 1.4 : 1.25);
-
-  // Активное слово — последнее начавшееся: между словами подсветка не мигает.
-  var active = -1;
-  u.words.forEach(function (w, i) { if (t >= w.s) active = i; });
+  g.font = st.weight + ' ' + fs + 'px -apple-system, "SF Pro Display", "Segoe UI", Roboto, sans-serif';
+  g.textBaseline = 'middle'; g.lineJoin = 'round';
+  // У плашки нужен воздух, иначе она налезает на соседние слова.
+  var space = g.measureText(' ').width + (plate ? fs * 0.3 : 0), maxW = W * 0.86, lineH = fs * (plate ? 1.4 : 1.25);
 
   var lines = [[]], lw = [0];
-  u.words.forEach(function (w, i) {
-    var ww = g.measureText(w.w).width, L = lines.length - 1;
+  words.forEach(function (w, i) {
+    var text = st.upper ? w.w.toUpperCase() : w.w, ww = g.measureText(text).width, L = lines.length - 1;
     if (lines[L].length && lw[L] + space + ww > maxW) { lines.push([]); lw.push(0); L++; }
     lw[L] += (lines[L].length ? space : 0) + ww;
-    lines[L].push({ text: w.w, width: ww, i: i });
+    lines[L].push({ text: text, width: ww, i: i });
   });
+  var y0 = cy - (lines.length - 1) * lineH / 2;
 
-  var cy = H * (karaoke ? 0.70 : 0.78), y0 = cy - (lines.length - 1) * lineH / 2;
+  if (st.box) {
+    var bw = Math.max.apply(null, lw) + fs * 1.0, bh = lines.length * lineH + fs * 0.45;
+    g.fillStyle = 'rgba(14,14,16,0.72)';
+    roundRect(g, (W - bw) / 2, y0 - lineH / 2 - fs * 0.22, bw, bh, fs * 0.35);
+    g.fill();
+  }
   lines.forEach(function (line, L) {
     var x = (W - lw[L]) / 2, y = y0 + L * lineH;
     line.forEach(function (it) {
-      var on = it.i === active;
-      if (karaoke && on) {
+      var on = it.i === active && st.hl !== 'none';
+      if (plate && on) {
         var p = fs * 0.14;
-        g.fillStyle = ACCENT;
+        g.fillStyle = st.plate;
         roundRect(g, x - p, y - fs * 0.62, it.width + p * 2, fs * 1.24, fs * 0.2);
         g.fill();
-      } else {
-        g.lineWidth = fs * (karaoke ? 0.16 : 0.13);
-        g.strokeStyle = 'rgba(0,0,0,0.55)';
+      } else if (st.stroke) {
+        g.lineWidth = fs * st.stroke;
+        g.strokeStyle = 'rgba(0,0,0,0.6)';
         g.strokeText(it.text, x, y);
       }
-      g.fillStyle = on && !karaoke ? ACCENT : '#fff';
+      g.fillStyle = plate && on ? (st.plateText || '#fff') : (st.hl === 'color' && on ? st.color : (st.box ? '#E8E8EA' : '#fff'));
       g.fillText(it.text, x, y);
       x += it.width + space;
     });
@@ -594,11 +899,21 @@ function drawSubs(g, W, H, t) {
   g.restore();
 }
 
+function drawSubs(g, W, H, t) {
+  if (!S.subsOn || !S.units.length) return;
+  var u = unitAt(t);
+  if (!u) return;
+  // Активное слово — последнее начавшееся: между словами подсветка не мигает.
+  var active = -1;
+  u.words.forEach(function (w, i) { if (t >= w.s) active = i; });
+  var st = STYLES[S.style];
+  drawUnit(g, W, H, u.words, active, st, Math.min(W, H), H * st.y);
+}
+
 // Холст титров лежит ровно поверх картинки видео (с учётом чёрных полей object-fit: contain).
 function drawOverlay() {
-  var cv = $('subs-cv'), stage = $('stage');
+  var cv = $('subs-cv'), stage = $('stage'), g = cv.getContext('2d');
   var vw = v.videoWidth, vh = v.videoHeight;
-  var g = cv.getContext('2d');
   if (!vw || !vh || !S.subsOn || !S.units.length) { g.clearRect(0, 0, cv.width, cv.height); return; }
   var bw = stage.clientWidth, bh = stage.clientHeight, k = Math.min(bw / vw, bh / vh);
   var cw = Math.round(vw * k), ch = Math.round(vh * k), dpr = window.devicePixelRatio || 1;
@@ -608,24 +923,50 @@ function drawOverlay() {
     cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
   }
   g.clearRect(0, 0, cv.width, cv.height);
-  drawSubs(g, cv.width, cv.height, v.currentTime);
+  drawSubs(g, cv.width, cv.height, gTime());
+}
+
+var SAMPLE = ['Три', 'ошибки', 'в', 'рилсах'].map(function (w) { return { w: w }; });
+function renderStyles() {
+  var box = $('styles');
+  if (!box.children.length) {
+    STYLE_ORDER.forEach(function (key) {
+      var b = document.createElement('button');
+      b.className = 'style-chip'; b.dataset.s = key;
+      b.innerHTML = '<canvas></canvas><span></span>';
+      b.querySelector('span').textContent = STYLES[key].label;
+      box.appendChild(b);
+    });
+  }
+  [].forEach.call(box.children, function (b) {
+    var key = b.dataset.s, st = STYLES[key], cv = b.querySelector('canvas');
+    b.classList.toggle('on', key === S.style);
+    var w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1;
+    if (!w) return;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    var words = key === 'word' ? [SAMPLE[1]] : st.group[1] < 4 ? SAMPLE.slice(0, 2) : SAMPLE;
+    var g = cv.getContext('2d');
+    // Мелкие стили в превью крупнее, чем в кадре, — иначе на плитке не прочитать.
+    drawUnit(g, cv.width, cv.height, words, key === 'word' ? 0 : 1, st, cv.width * 1.5 * Math.max(1, 0.075 / st.fs), cv.height / 2);
+  });
 }
 
 function renderSubsUi() {
-  $('subs-opts').hidden = !(S.subsOn && S.words && S.words.length);
-  [].forEach.call($('styles').children, function (b) { b.classList.toggle('on', b.dataset.s === S.style); });
+  var ready = S.subsOn && S.words && S.words.length;
+  $('subs-opts').hidden = !ready;
+  if (ready) renderStyles();
 }
 
 $('subs').addEventListener('change', function () {
   S.subsOn = this.checked; store('subs', S.subsOn ? '1' : '0');
   renderSubsUi(); drawOverlay();
-  if (S.subsOn) transcribe();
+  if (S.subsOn) ensureTranscripts();
 });
 $('styles').addEventListener('click', function (e) {
-  var s = e.target.dataset && e.target.dataset.s;
-  if (!s || s === S.style) return;
-  S.style = s; store('style', s);
-  buildUnits(); renderSubsUi(); drawOverlay();
+  var b = e.target.closest && e.target.closest('.style-chip');
+  if (!b || b.dataset.s === S.style) return;
+  S.style = b.dataset.s; store('style', S.style);
+  buildUnits(); renderStyles(); drawOverlay();
 });
 
 /* ---------- Титры: правка текста ---------- */
@@ -638,7 +979,7 @@ $('edit-text').addEventListener('click', function () {
     var row = document.createElement('div');
     var allCut = p.words.every(function (w) { return !keptPart(w); });
     row.className = 'phrase' + (allCut ? ' cut' : '');
-    var tm = document.createElement('time'); tm.textContent = fmt(p.s);
+    var tm = document.createElement('time'); tm.textContent = fmt(p.words[0].s);
     var ta = document.createElement('textarea');
     ta.rows = 2; ta.value = p.words.map(function (w) { return w.w; }).join(' '); ta.dataset.i = i;
     row.appendChild(tm); row.appendChild(ta); box.appendChild(row);
@@ -652,7 +993,7 @@ $('text-done').addEventListener('click', function () {
   [].forEach.call($('phrases').querySelectorAll('textarea'), function (ta) {
     var p = S.phrases[+ta.dataset.i], text = ta.value.trim().replace(/\s+/g, ' ');
     if (text === p.words.map(function (w) { return w.w; }).join(' ')) return;
-    var parts = text ? text.split(' ') : [];
+    var parts = text ? text.split(' ') : [], cid = p.words[0].c;
     // Раскладываем по ЗВУЧАЩЕЙ части фразы, иначе новое слово может попасть в вырезанную тишину.
     var heard = p.words.map(keptPart).filter(Boolean);
     var a = heard.length ? heard[0].s : p.words[0].s;
@@ -660,13 +1001,17 @@ $('text-done').addEventListener('click', function () {
     var total = parts.reduce(function (s, w) { return s + w.length + 1; }, 0), acc = 0;
     p.words = parts.map(function (w) {
       var s = a + (b - a) * acc / total; acc += w.length + 1;
-      return { w: w, s: s, e: a + (b - a) * acc / total };
+      return { w: w, c: cid, s: s, e: a + (b - a) * acc / total };
     });
   });
-  S.phrases = S.phrases.filter(function (p) { return p.words.length; });
-  S.words = [].concat.apply([], S.phrases.map(function (p) { return p.words; }));
-  S.phrases.forEach(function (p) { p.s = p.words[0].s; });
-  buildUnits();
+  // Записываем обратно в ролики (время внутри файла), чтобы правка пережила смену порядка.
+  var by = {};
+  S.clips.forEach(function (c) { by[c.id] = []; });
+  S.phrases.forEach(function (p) {
+    p.words.forEach(function (w) { var c = clipById(w.c); if (c) by[c.id].push({ w: w.w, s: w.s - c.offset, e: w.e - c.offset }); });
+  });
+  S.clips.forEach(function (c) { c.words = by[c.id].sort(function (x, y) { return x.s - y.s; }); });
+  syncWords(); rebuildCuts();
   show('edit');
   renderEdit();
 });
@@ -674,45 +1019,57 @@ $('text-done').addEventListener('click', function () {
 /* ---------- Экран монтажа ---------- */
 
 function renderEdit() {
-  buildUnits();
-  renderSubsUi();
   [].forEach.call($('levels').children, function (b) { b.classList.toggle('on', b.dataset.l === S.level); });
-  var now = keptLength(), cut = S.duration - now, pauses = S.cuts.length;
+  var now = keptLength(), cut = S.duration - now, pauses = S.pauseCuts.length, dups = cutTakes(), info = [];
   $('st-was').textContent = fmt(S.duration);
   $('st-now').textContent = fmt(now);
   $('tlen').textContent = fmt(S.duration);
-  $('st-cut').textContent = pauses
-    ? '−' + Math.round(cut) + ' с · ' + pauses + ' ' + plural(pauses, 'пауза', 'паузы', 'пауз')
-    : 'Пауз не нашлось';
+  if (cut >= 1) info.push('−' + Math.round(cut) + ' с');
+  if (pauses) info.push(pauses + ' ' + plural(pauses, 'пауза', 'паузы', 'пауз'));
+  if (dups) info.push(dups + ' ' + plural(dups, 'дубль', 'дубля', 'дублей'));
+  $('st-cut').textContent = info.length ? info.join(' · ') : 'Резать нечего';
+  $('clips-label').textContent = S.clips.length + ' ' + plural(S.clips.length, 'ролик', 'ролика', 'роликов');
+  $('dups-row').hidden = !(S.dupsOn && S.words);
+  $('dups-info').textContent = S.groups.length
+    ? 'Повторов: ' + S.groups.length
+    : 'Повторов не нашлось';
+  $('dups-open').hidden = !S.groups.length;
+  renderSubsUi();
   drawWave();
   moveHead();
 }
 
+function lvlAt(T) {
+  var c = clipAt(T), k = Math.floor((T - c.offset) / HOP);
+  return c.lvl[Math.max(0, Math.min(c.lvl.length - 1, k))] || 0;
+}
+
 function drawWave() {
   var cv = $('wave'), w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1;
-  if (!w || !S.db) return;
+  if (!w || !S.clips.length) return;
   cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
   var g = cv.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
-  var dur = S.duration;
+  var dur = S.duration, bars = Math.floor(w / 3), per = dur / bars;
   g.fillStyle = 'rgba(255,90,78,.14)';
   S.cuts.forEach(function (c) { g.fillRect(c[0] / dur * w, 0, (c[1] - c[0]) / dur * w, h); });
-  var bars = Math.floor(w / 3), per = S.db.length / bars, range = S.peak - S.floor + 1e-6;
   for (var b = 0; b < bars; b++) {
-    var mx = -200, k0 = Math.floor(b * per), k1 = Math.max(k0 + 1, Math.floor((b + 1) * per));
-    for (var k = k0; k < k1; k++) if (S.db[k] > mx) mx = S.db[k];
-    var v = Math.max(0, Math.min(1, (mx - S.floor) / range));
-    var bh = Math.max(2, v * (h - 10));
-    g.fillStyle = inCut((b + 0.5) * per * HOP) ? '#FF5A4E' : '#8E8E96';
+    var t0 = b * per, mx = 0;
+    for (var t = t0; t < t0 + per; t += HOP) mx = Math.max(mx, lvlAt(t));
+    var bh = Math.max(2, mx * (h - 10));
+    g.fillStyle = inCut(t0 + per / 2) ? ACCENT : '#8E8E96';
     g.fillRect(b * 3, (h - bh) / 2, 2, bh);
   }
+  // Стыки роликов — тонкие светлые линии.
+  g.fillStyle = 'rgba(232,232,234,.55)';
+  S.clips.forEach(function (c, i) { if (i) g.fillRect(Math.round(c.offset / dur * w), 0, 1, h); });
 }
 
 function moveHead() {
-  var v = $('video'), w = $('wave-wrap').clientWidth;
-  $('head').style.transform = 'translateX(' + (S.duration ? v.currentTime / S.duration * w : 0) + 'px)';
-  $('tcur').textContent = fmt(v.currentTime);
+  var w = $('wave-wrap').clientWidth, T = gTime();
+  $('head').style.transform = 'translateX(' + (S.duration ? T / S.duration * w : 0) + 'px)';
+  $('tcur').textContent = fmt(T);
   drawOverlay();
 }
 
@@ -720,32 +1077,54 @@ $('levels').addEventListener('click', function (e) {
   var l = e.target.dataset && e.target.dataset.l;
   if (!l || l === S.level) return;
   S.level = l; store('level', l);
-  buildSegments(); renderEdit();
+  rebuild(); renderEdit();
 });
 $('skip').addEventListener('change', function () {
   S.skip = this.checked;
   $('tag').textContent = S.skip ? 'Без пауз' : 'Оригинал';
 });
 $('again').addEventListener('click', function () { stopPreview(); show('start'); $('file').click(); });
-window.addEventListener('resize', function () { if (!$('scr-edit').hidden) { drawWave(); moveHead(); } });
+window.addEventListener('resize', function () { if (!$('scr-edit').hidden) { drawWave(); moveHead(); renderSubsUi(); } });
 
 // Тап по волне — перемотка.
 $('wave-wrap').addEventListener('pointerdown', function (e) {
-  var r = this.getBoundingClientRect();
-  $('video').currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * S.duration;
-  moveHead();
+  var r = this.getBoundingClientRect(), T = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * S.duration;
+  if (v.paused) setPreviewTime(T); else playFrom(T);
 });
 
-/* ---------- Просмотр без пауз ---------- */
+/* ---------- Просмотр по общей шкале ---------- */
 
 var v = $('video');
+v._clip = null;
+var switching = false;
+
+function loadInto(el, c) {
+  if (el._clip === c) return el.readyState >= 1 ? Promise.resolve() : once(el, 'loadedmetadata', 10000);
+  el._clip = c;
+  el.src = c.url;
+  return once(el, 'loadedmetadata', 10000);
+}
+function gTime() { return v._clip ? v._clip.offset + v.currentTime : 0; }
+function setPreviewTime(T) {
+  var c = clipAt(T);
+  if (!c) return Promise.resolve();
+  return loadInto(v, c).then(function () { return seek(v, T - c.offset); }).then(moveHead, function () {});
+}
+function playV() { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+function playFrom(T) {
+  var c = clipAt(T);
+  // Если нужный файл уже в плеере — play() прямо в обработчике тапа (iOS требует жест пользователя).
+  if (v._clip === c && v.readyState >= 1) { v.currentTime = T - c.offset; playV(); return; }
+  switching = true;
+  loadInto(v, c).then(function () { return seek(v, T - c.offset); })
+    .then(function () { switching = false; playV(); }, function () { switching = false; });
+}
 function togglePlay() {
   if (!v.paused) { v.pause(); return; }
-  if (S.skip) {
-    var nx = nextKeepStart(v.currentTime);
-    v.currentTime = nx === null ? S.keep[0][0] : nx;
-  }
-  var p = v.play(); if (p && p.catch) p.catch(function () {});
+  var T = gTime();
+  if (S.skip) { var nx = nextKeepStart(T); T = nx === null ? S.keep[0][0] : nx; }
+  else if (T >= S.duration - 0.05) T = 0;
+  playFrom(T);
 }
 function stopPreview() { if (!v.paused) v.pause(); }
 $('play').addEventListener('click', togglePlay);
@@ -754,23 +1133,33 @@ v.addEventListener('play', function () { $('stage').classList.add('playing'); pr
 v.addEventListener('pause', function () { $('stage').classList.remove('playing'); moveHead(); });
 v.addEventListener('seeked', moveHead);
 v.addEventListener('loadeddata', moveHead);
+// Файл кончился — продолжаем со следующего ролика.
+v.addEventListener('ended', function () {
+  var i = S.clips.indexOf(v._clip);
+  if (i < 0 || i >= S.clips.length - 1) return;
+  var T = S.clips[i + 1].offset;
+  if (S.skip) { T = nextKeepStart(T); if (T === null) return; }
+  playFrom(T);
+});
 
 function previewLoop() {
-  if (v.paused) return;
+  if (v.paused || switching) return;
   // timeupdate в Safari приходит раз в ~250 мс — для прыжков через паузы мало, следим таймером.
-  if (S.skip && inCut(v.currentTime)) {
-    var nx = nextKeepStart(v.currentTime);
-    if (nx === null) { v.pause(); v.currentTime = S.keep[0][0]; return; }
-    v.currentTime = nx;
+  var T = gTime();
+  if (S.skip && inCut(T)) {
+    var nx = nextKeepStart(T);
+    if (nx === null) { v.pause(); return; }
+    if (clipAt(nx) !== v._clip) { v.pause(); playFrom(nx); return; }
+    v.currentTime = nx - v._clip.offset;
   }
   moveHead();
   setTimeout(previewLoop, 15);
 }
 
 /* ---------- Сборка итогового видео ---------- */
-// Прототип собирает видео в реальном времени: проигрывает нужные куски в скрытом плеере,
-// рисует кадры на холст и пишет холст + звук через MediaRecorder. Между кусками запись
-// ставится на паузу — так в итог не попадают перемотки.
+// Видео собирается в реальном времени: нужные куски проигрываются в скрытом плеере (файл за файлом),
+// кадры рисуются на холст вместе с титрами, холст + звук пишутся через MediaRecorder.
+// Между кусками запись на паузе — перемотки и смена файла в итог не попадают.
 
 var X = { ctx: null, gain: null, dest: null, cancel: false, lock: null, overshoot: [] };
 
@@ -821,6 +1210,14 @@ function playUntil(el, end, onTick) {
   });
 }
 
+// Дубли могли сниматься в разном размере: каждый кадр «заполняет» итоговый кадр без чёрных полей.
+function drawFit(g, el, W, H) {
+  var vw = el.videoWidth, vh = el.videoHeight;
+  if (!vw || !vh) return;
+  var k = Math.max(W / vw, H / vh), dw = vw * k, dh = vh * k;
+  g.drawImage(el, (W - dw) / 2, (H - dh) / 2, dw, dh);
+}
+
 $('go').addEventListener('click', startExport);
 $('xcancel').addEventListener('click', function () { X.cancel = true; });
 // Свёрнутый Safari останавливает видео — честно прерываем сборку, а не пишем кривой ролик.
@@ -835,6 +1232,7 @@ function startExport() {
     toast('Этот браузер не умеет собирать видео. Откройте приложение в Safari или Chrome.');
     return;
   }
+  if (!S.segs.length) return;
   // Всё, что требует «жеста пользователя», делаем сразу в обработчике нажатия.
   if (!X.ctx) {
     var AC = window.AudioContext || window.webkitAudioContext;
@@ -845,6 +1243,7 @@ function startExport() {
     node.connect(X.gain); X.gain.connect(X.dest);
   }
   X.ctx.resume();
+  if (!src._clip) { src._clip = S.segs[0].clip; src.src = src._clip.url; }
   var unlock = src.play(); if (unlock && unlock.catch) unlock.catch(function () {});
   src.pause();
   if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { X.lock = l; }, function () {});
@@ -853,7 +1252,7 @@ function startExport() {
   show('export'); setProgress(0);
   runExport(src).then(finishExport, function (e) {
     releaseLock();
-    show('edit');
+    show('edit'); renderEdit();
     if (X.hiddenAbort) { X.hiddenAbort = false; toast('Сборка прервана: приложение свернули. Нажмите «Собрать видео» ещё раз.'); return; }
     if (e && e.message === 'cancel') return;
     console.error(e);
@@ -871,59 +1270,62 @@ function setProgress(p) {
 function releaseLock() { if (X.lock) { X.lock.release().catch(function () {}); X.lock = null; } }
 
 function runExport(src) {
-  var vw = src.videoWidth, vh = src.videoHeight;
-  if (!vw || !vh) return Promise.reject(new Error('нет картинки в видео'));
-  var k = Math.min(1, 1920 / Math.max(vw, vh));
-  var W = Math.round(vw * k / 2) * 2, H = Math.round(vh * k / 2) * 2;
-  var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  var g = cv.getContext('2d');
-  function frame() { g.drawImage(src, 0, 0, W, H); drawSubs(g, W, H, src.currentTime); }
-  frame();
+  return loadInto(src, S.segs[0].clip).then(function () {
+    // Размер итога — по первому ролику, остальные подгоняются под него.
+    var vw = src.videoWidth, vh = src.videoHeight;
+    if (!vw || !vh) throw new Error('нет картинки в видео');
+    var k = Math.min(1, 1920 / Math.max(vw, vh));
+    var W = Math.round(vw * k / 2) * 2, H = Math.round(vh * k / 2) * 2;
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var g = cv.getContext('2d');
+    function frame() { drawFit(g, src, W, H); if (src._clip) drawSubs(g, W, H, src._clip.offset + src.currentTime); }
+    frame();
 
-  var stream = new MediaStream(cv.captureStream(30).getVideoTracks().concat(X.dest.stream.getAudioTracks()));
-  var mime = pickMime();
-  var opts = { videoBitsPerSecond: W * H >= 1920 * 1080 ? 10e6 : 6e6, audioBitsPerSecond: 128000 };
-  if (mime) opts.mimeType = mime;
-  var rec = new MediaRecorder(stream, opts), chunks = [];
-  rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
-  var stopped = new Promise(function (res) { rec.onstop = res; });
+    var stream = new MediaStream(cv.captureStream(30).getVideoTracks().concat(X.dest.stream.getAudioTracks()));
+    var mime = pickMime();
+    var opts = { videoBitsPerSecond: W * H >= 1920 * 1080 ? 10e6 : 6e6, audioBitsPerSecond: 128000 };
+    if (mime) opts.mimeType = mime;
+    var rec = new MediaRecorder(stream, opts), chunks = [];
+    rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+    var stopped = new Promise(function (res) { rec.onstop = res; });
 
-  var drawing = true;
-  (function draw() { if (!drawing) return; frame(); setTimeout(draw, 1000 / 30); })();
+    var drawing = true;
+    (function draw() { if (!drawing) return; frame(); setTimeout(draw, 1000 / 30); })();
 
-  var total = keptLength(), done = 0, i = 0;
-  X.overshoot = [];
-  function cleanup() {
-    drawing = false; src.pause();
-    if (rec.state !== 'inactive') rec.stop();
-    stream.getTracks().forEach(function (t) { if (t.kind === 'video') t.stop(); });
-  }
-  function next() {
-    if (i >= S.keep.length) return Promise.resolve();
-    var a = S.keep[i][0], b = S.keep[i][1];
-    return seek(src, a).then(function () {
-      frame();                             // первым кадром идёт уже нужный, а не хвост прошлого куска
-      var now = X.ctx.currentTime;
-      X.gain.gain.cancelScheduledValues(now);
-      X.gain.gain.setValueAtTime(0, now);
-      X.gain.gain.linearRampToValueAtTime(1, now + 0.015);
-      if (rec.state === 'inactive') rec.start(1000); else rec.resume();
-      return src.play();
+    var total = keptLength(), done = 0, i = 0;
+    X.overshoot = [];
+    function cleanup() {
+      drawing = false; src.pause();
+      if (rec.state !== 'inactive') rec.stop();
+      stream.getTracks().forEach(function (t) { if (t.kind === 'video') t.stop(); });
+    }
+    function next() {
+      if (i >= S.segs.length) return Promise.resolve();
+      var sg = S.segs[i];
+      return loadInto(src, sg.clip).then(function () { return seek(src, sg.a); }).then(function () {
+        frame();                             // первым кадром идёт уже нужный, а не хвост прошлого куска
+        var now = X.ctx.currentTime;
+        X.gain.gain.cancelScheduledValues(now);
+        X.gain.gain.setValueAtTime(0, now);
+        X.gain.gain.linearRampToValueAtTime(1, now + 0.015);
+        if (rec.state === 'inactive') rec.start(1000); else rec.resume();
+        return src.play();
+      }).then(function () {
+        return playUntil(src, sg.b, function (t) { setProgress((done + Math.max(0, t - sg.a)) / total); });
+      }).then(function () {
+        src.pause(); rec.pause();
+        X.overshoot.push(+(src.currentTime - sg.b).toFixed(3));   // насколько проскочили конец куска
+        done += sg.b - sg.a; i++;
+        return next();
+      });
+    }
+    return next().then(function () {
+      cleanup();
+      return stopped;
     }).then(function () {
-      return playUntil(src, b, function (t) { setProgress((done + Math.max(0, t - a)) / total); });
-    }).then(function () {
-      src.pause(); rec.pause();
-      X.overshoot.push(+(src.currentTime - b).toFixed(3));   // насколько проскочили конец куска
-      done += b - a; i++;
-      return next();
-    });
-  }
-  return next().then(function () {
-    cleanup();
-    return stopped;
-  }).then(function () {
-    return new Blob(chunks, { type: (rec.mimeType || mime || 'video/webm').split(';')[0] });
-  }, function (e) { cleanup(); throw e; });
+      return new Blob(chunks, { type: (rec.mimeType || mime || 'video/webm').split(';')[0] });
+    }, function (e) { cleanup(); throw e; });
+  });
 }
 
 function finishExport(blob) {
@@ -958,8 +1360,8 @@ function download(name) {
 }
 $('back').addEventListener('click', function () { $('result').pause(); show('edit'); renderEdit(); });
 
-// Для отладки из консоли: Reelista.load(file), Reelista.state
-window.Reelista = { load: loadFile, state: S, export: X, transcribe: transcribe };
+// Для отладки из консоли: Reelista.load([file, ...]), Reelista.state
+window.Reelista = { load: function (files) { return loadFiles([].concat(files), true); }, state: S, export: X, transcripts: ensureTranscripts };
 </script>
 </body>
 </html>
