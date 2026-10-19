@@ -92,7 +92,9 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 .actions{display:grid;grid-template-columns:1fr 1.2fr;gap:10px;margin-top:auto;padding-top:16px}
 
 .xstage{width:min(46vw,200px);aspect-ratio:9/16;background:#000;border:.5px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:18px}
-.xstage video{width:100%;height:100%;object-fit:contain;display:block}
+.xstage video,.xstage canvas{width:100%;height:100%;object-fit:contain;display:block}
+.xstage canvas,.xstage.frames video{display:none}
+.xstage.frames canvas{display:block}
 .pct{font-weight:200;font-size:56px;font-variant-numeric:tabular-nums;margin:8px 0 14px}
 .bar{width:100%;max-width:320px;height:2px;background:var(--line2);border-radius:2px;overflow:hidden;margin-bottom:22px}
 .bar i{display:block;height:100%;width:0;background:var(--accent)}
@@ -240,7 +242,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
   <section id="scr-export" class="center" hidden>
     <!-- Плеер, из которого собирается видео, — ВИДИМЫЙ: невидимое видео Safari декодирует
          вполсилы, и в итоге терялись кадры. Заодно видно, что сейчас собирается. -->
-    <div class="xstage"><video id="xvideo" playsinline preload="auto"></video></div>
+    <div class="xstage" id="xstage"><video id="xvideo" playsinline preload="auto"></video></div>
     <div class="rec"><span class="dot"></span>Сборка</div>
     <div class="pct" id="xpct">0%</div>
     <div class="bar"><i id="xbar"></i></div>
@@ -264,7 +266,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.3.6';
+var APP_VERSION = '0.4.0';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -374,7 +376,7 @@ function loadFiles(files, replace) {
     var label = '«' + (f.name || 'видео') + '» (' + Math.round(f.size / 1048576) + ' МБ)';
     return readAudio(f).then(function (ab) {
       try {
-        var c = { id: ++clipSeq, name: f.name || ('Ролик ' + clipSeq), url: URL.createObjectURL(f), words: null };
+        var c = { id: ++clipSeq, name: f.name || ('Ролик ' + clipSeq), url: URL.createObjectURL(f), file: f, words: null };
         analyseClip(c, ab);
         c.pcm = to16k(ab);        // звук для распознавания: 16 кГц моно, ~2 МБ на минуту
         S.clips.push(c);
@@ -1321,8 +1323,9 @@ function drawFit(g, el, W, H) {
 $('go').addEventListener('click', startExport);
 $('xcancel').addEventListener('click', function () { X.cancel = true; });
 // Свёрнутый Safari останавливает видео — честно прерываем сборку, а не пишем кривой ролик.
+// Покадровой сборке сворачивание не страшно — она просто продолжит, когда приложение вернут.
 document.addEventListener('visibilitychange', function () {
-  if (document.hidden && !$('scr-export').hidden) { X.cancel = true; X.hiddenAbort = true; }
+  if (document.hidden && !$('scr-export').hidden && X.mode === 'live') { X.cancel = true; X.hiddenAbort = true; }
 });
 
 // Скрытый плеер сборки получает ролик СРАЗУ после загрузки, как было в 0.1 (там сборка на iPhone
@@ -1337,7 +1340,7 @@ function primeExportPlayer() {
 function startExport() {
   stopPreview();
   var src = $('xvideo');
-  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+  if (typeof VideoEncoder === 'undefined' && (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream)) {
     toast('Этот браузер не умеет собирать видео. Откройте приложение в Safari или Chrome.');
     return;
   }
@@ -1366,8 +1369,21 @@ function startExport() {
 
   X.cancel = false; X.hiddenAbort = false; X.stage = 'подготовка';
   show('export'); setProgress(0);
-  ready.then(function () { return runExport(src); }).then(finishExport, function (e) {
+  // Сначала покадровая сборка (WebCodecs): без потерь кадров и обычно быстрее реального времени.
+  // Не умеет телефон или споткнулась — «живая» сборка, как раньше.
+  X.mode = 'frames';
+  runExportFrames().catch(function (e) {
+    if (e && e.message === 'cancel') throw e;
+    if (!(e && e.unsupported)) {
+      console.warn('покадровая сборка не удалась', e);
+      toast('Покадровая сборка не удалась (' + errText(e) + ') — собираю обычным способом.', 10000);
+    }
+    X.mode = 'live'; X.stage = 'подготовка'; setProgress(0);
+    $('xstage').classList.remove('frames');
+    return ready.then(function () { return runExport(src); });
+  }).then(finishExport, function (e) {
     releaseLock();
+    $('xstage').classList.remove('frames');
     show('edit'); renderEdit();
     if (X.hiddenAbort) { X.hiddenAbort = false; toast('Сборка прервана: приложение свернули. Нажмите «Собрать видео» ещё раз.'); return; }
     if (e && e.message === 'cancel') return;
@@ -1489,8 +1505,136 @@ function runExport(src) {
   });
 }
 
+/* ---------- Покадровая сборка (WebCodecs + Mediabunny) ---------- */
+// «Живая» сборка проигрывала ролик и снимала холст на лету — iPhone не успевал, кадры терялись
+// (замер: 21.7 и 15 к/с вместо 30). Здесь каждый кадр достаётся из файла аппаратным декодером,
+// на нём рисуются титры, и он уходит в аппаратный кодировщик со СВОЕЙ меткой времени.
+// Ни один кадр не теряется: не успевает телефон — сборка просто идёт дольше.
+// Библиотека (vendor/, MPL-2.0) грузится только при первой сборке — открытие приложения не тормозит.
+
+var MB = null;
+function loadMediabunny() {
+  if (MB) return Promise.resolve(MB);
+  var url = './vendor/mediabunny-1.61.3.min.mjs';
+  // Оборванную загрузку браузер запоминает до перезагрузки страницы — повторяем с другим адресом.
+  return import(url).catch(function () { return import(url + '?retry=' + Date.now()); })
+    .then(function (m) { MB = m; return m; });
+}
+function unsupported(msg) { var e = new Error(msg); e.unsupported = true; return e; }
+
+// Звук ролика для сборки — тем же путём, что и для анализа (только звуковая дорожка).
+// Частоту приводим к общей простым линейным пересчётом: для речи этого достаточно.
+function clipAudio(c, rate) {
+  return readAudio(c.file).then(function (ab) {
+    var chans = [];
+    for (var k = 0; k < Math.min(2, ab.numberOfChannels); k++) {
+      var d = ab.getChannelData(k);
+      if (ab.sampleRate === rate) { chans.push(d); continue; }
+      var n = Math.floor(d.length * rate / ab.sampleRate), o = new Float32Array(n), r = ab.sampleRate / rate;
+      for (var i = 0; i < n; i++) { var x = i * r, j = Math.floor(x), f = x - j; o[i] = d[j] * (1 - f) + (d[j + 1] || 0) * f; }
+      chans.push(o);
+    }
+    return chans;
+  });
+}
+
+async function runExportFrames() {
+  if (typeof VideoEncoder === 'undefined' || typeof VideoDecoder === 'undefined') throw unsupported('нет WebCodecs');
+  X.stage = 'загрузка модуля сборки';
+  var M = await loadMediabunny();
+  var inputs = new Map();
+  function inputOf(c) {
+    if (!inputs.has(c)) inputs.set(c, new M.Input({ source: new M.BlobSource(c.file), formats: M.ALL_FORMATS }));
+    return inputs.get(c);
+  }
+  // Проверяем ДО начала, что телефон умеет и прочитать каждый ролик, и записать результат.
+  X.stage = 'проверка роликов';
+  var used = S.clips.filter(function (c) { return S.segs.some(function (s) { return s.clip === c; }); });
+  var tracks = new Map();
+  for (var c of used) {
+    var vt = await inputOf(c).getPrimaryVideoTrack();
+    if (!vt) throw unsupported('в ролике нет видео');
+    if (!(await vt.canDecode())) throw unsupported('телефон не декодирует ' + (await vt.getCodecParameterString() || 'это видео'));
+    tracks.set(c, vt);
+  }
+  var first = tracks.get(S.segs[0].clip);
+  var k = Math.min(1, 1920 / Math.max(first.displayWidth, first.displayHeight));
+  var W = Math.round(first.displayWidth * k / 2) * 2, H = Math.round(first.displayHeight * k / 2) * 2;
+  if (!(await M.canEncodeVideo('avc', { width: W, height: H }))) throw unsupported('телефон не кодирует H.264 ' + W + '×' + H);
+  var RATE = 48000, CH = 2;
+  if (!(await M.canEncodeAudio('aac', { numberOfChannels: CH, sampleRate: RATE }))) throw unsupported('телефон не кодирует AAC');
+
+  var cv = X.cv || (X.cv = document.createElement('canvas'));
+  cv.width = W; cv.height = H;
+  var g = cv.getContext('2d');
+  if (!g) throw new Error('телефон не выделил память под кадр ' + W + '×' + H);
+  // Превью на экране «Сборка» — сам собираемый кадр.
+  $('xstage').classList.add('frames');
+  if (cv.parentNode !== $('xstage')) $('xstage').appendChild(cv);
+
+  var output = new M.Output({ format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new M.BufferTarget() });
+  var vsrc = new M.CanvasSource(cv, { codec: 'avc', quality: M.QUALITY_HIGH, keyFrameInterval: 1 });
+  var asrc = new M.AudioBufferSource({ codec: 'aac', quality: M.QUALITY_HIGH });
+  output.addVideoTrack(vsrc);
+  output.addAudioTrack(asrc);
+  await output.start();
+
+  var total = keptLength(), outT = 0, frames = 0;
+  try {
+    for (var i = 0; i < S.segs.length; i++) {
+      var sg = S.segs[i];
+      X.stage = 'кадры (кусок ' + (i + 1) + ' из ' + S.segs.length + ')';
+      var sink = new M.VideoSampleSink(tracks.get(sg.clip));
+      for await (var s of sink.samples(sg.a, sg.b)) {
+        if (X.cancel) { s.close(); throw new Error('cancel'); }
+        var st = Math.max(s.timestamp, sg.a), en = Math.min(s.timestamp + s.duration, sg.b);
+        if (en - st < 0.0005) { s.close(); continue; }
+        g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+        s.drawWithFit(g, { fit: 'cover' });           // поворот видео с iPhone учитывается сам
+        s.close();
+        drawSubs(g, W, H, sg.clip.offset + st);
+        await vsrc.add(outT + (st - sg.a), en - st);
+        frames++;
+        setProgress(0.9 * (outT + en - sg.a) / total);
+      }
+      outT += sg.b - sg.a;
+    }
+
+    // Звук: склеиваем нужные куски в один буфер, на стыках — мягкие 10 мс, чтобы не щёлкало.
+    X.stage = 'звук';
+    var audio = new Map();
+    for (var c2 of used) audio.set(c2, await clipAudio(c2, RATE));
+    var actx = decoderCtx() || new (window.AudioContext || window.webkitAudioContext)();
+    var len = Math.round(total * RATE), buf = actx.createBuffer(CH, len, RATE), fade = Math.round(0.01 * RATE), pos = 0;
+    S.segs.forEach(function (sg2, si) {
+      var src = audio.get(sg2.clip), from = Math.round(sg2.a * RATE), n = Math.min(Math.round((sg2.b - sg2.a) * RATE), len - pos);
+      for (var ch = 0; ch < CH; ch++) {
+        var d = src[Math.min(ch, src.length - 1)], out = buf.getChannelData(ch);
+        for (var j = 0; j < n; j++) {
+          var gain = 1;
+          if (si > 0 && j < fade) gain = j / fade;
+          if (si < S.segs.length - 1 && n - j <= fade) gain = Math.min(gain, (n - j) / fade);
+          out[pos + j] = (d[from + j] || 0) * gain;
+        }
+      }
+      pos += n;
+    });
+    await asrc.add(buf);
+    setProgress(0.97);
+
+    X.stage = 'запись файла';
+    await output.finalize();
+  } catch (e) {
+    try { await output.cancel(); } catch (x) {}
+    throw e;
+  }
+  X.vframes = frames;
+  return new Blob([output.target.buffer], { type: 'video/mp4' });
+}
+
 function finishExport(blob) {
   releaseLock();
+  $('xstage').classList.remove('frames');
   S.out = blob;
   if (S.outUrl) URL.revokeObjectURL(S.outUrl);
   S.outUrl = URL.createObjectURL(blob);
