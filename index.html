@@ -7,6 +7,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Reelista</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<meta name="apple-mobile-web-app-title" content="Reelista">
 <style>
 :root{
   --bg:#0E0E10; --panel:#151518; --line:#2A2A30; --line2:#3A3A40;
@@ -23,6 +27,7 @@ button,label.btn{font:inherit;color:inherit;cursor:pointer}
 header{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px}
 .brand{display:flex;align-items:center;gap:8px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;font-size:13px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0}
+.brand .mark{width:24px;height:18px;flex-shrink:0}
 .ver{font-size:11px;color:var(--muted);padding:3px 8px;border:.5px solid var(--line2);border-radius:20px}
 
 main{flex:1;display:flex;flex-direction:column;padding:0 16px 16px;max-width:520px;width:100%;margin:0 auto}
@@ -140,7 +145,11 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 </head>
 <body>
 <header>
-  <div class="brand"><span class="dot"></span><span id="brand"></span></div>
+  <div class="brand">
+    <!-- Знак Reelista (icon.svg) в цветах интерфейса: светлая волна, красная склейка -->
+    <svg class="mark" viewBox="88 132 332 248" aria-hidden="true"><path d="M118 222v68M168 179v154M218 205v102M340 162v188M390 213v86" fill="none" stroke="#E8E8EA" stroke-width="40" stroke-linecap="round"/><circle cx="279" cy="256" r="24" fill="#FF5A4E"/></svg>
+    <span id="brand"></span>
+  </div>
   <span class="ver" id="ver"></span>
 </header>
 
@@ -252,7 +261,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.3.2';
+var APP_VERSION = '0.3.3';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 

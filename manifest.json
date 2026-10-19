@@ -1,0 +1,19 @@
+{
+  "name": "Reelista",
+  "short_name": "Reelista",
+  "description": "Reelista — монтаж рилсов на телефоне: паузы и дубли вырезаются сами, титры ставятся одной кнопкой",
+  "id": "/Reelista/",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "ru",
+  "dir": "ltr",
+  "categories": ["photo", "video", "productivity"],
+  "background_color": "#0E0E10",
+  "theme_color": "#0E0E10",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
