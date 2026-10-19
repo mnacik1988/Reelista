@@ -91,6 +91,8 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 .actions{display:grid;grid-template-columns:1fr 1.2fr;gap:10px;margin-top:auto;padding-top:16px}
 
+.xstage{width:min(46vw,200px);aspect-ratio:9/16;background:#000;border:.5px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:18px}
+.xstage video{width:100%;height:100%;object-fit:contain;display:block}
 .pct{font-weight:200;font-size:56px;font-variant-numeric:tabular-nums;margin:8px 0 14px}
 .bar{width:100%;max-width:320px;height:2px;background:var(--line2);border-radius:2px;overflow:hidden;margin-bottom:22px}
 .bar i{display:block;height:100%;width:0;background:var(--accent)}
@@ -236,6 +238,9 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
   <!-- 4. Сборка -->
   <section id="scr-export" class="center" hidden>
+    <!-- Плеер, из которого собирается видео, — ВИДИМЫЙ: невидимое видео Safari декодирует
+         вполсилы, и в итоге терялись кадры. Заодно видно, что сейчас собирается. -->
+    <div class="xstage"><video id="xvideo" playsinline preload="auto"></video></div>
     <div class="rec"><span class="dot"></span>Сборка</div>
     <div class="pct" id="xpct">0%</div>
     <div class="bar"><i id="xbar"></i></div>
@@ -255,13 +260,11 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
   </section>
 </main>
 
-<!-- Скрытый плеер, из которого собирается итоговое видео -->
-<video id="xvideo" playsinline preload="auto" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></video>
 <div class="toast" id="toast" hidden></div>
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.3.5';
+var APP_VERSION = '0.3.6';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -1422,11 +1425,22 @@ function runExport(src) {
     rec.onerror = function (e) { X.recErr = (e && e.error) || e; console.error('MediaRecorder', X.recErr); };
     var stopped = new Promise(function (res) { rec.onstop = res; });
 
+    // Кадр рисуем РОВНО когда видео выдало новый кадр (requestVideoFrameCallback). Раньше рисовали
+    // только по таймеру раз в 33 мс: таймер «плавает», кадры видео то терялись, то повторялись —
+    // замер ролика с iPhone: 21.7 к/с вместо 30, 272 кадра из 893 висели вдвое дольше («подвисания»).
+    // Таймер остаётся подстраховкой: пока видео на паузе между кусками, и для титров.
     var drawing = true;
     (function draw() { if (!drawing) return; frame(); setTimeout(draw, 1000 / 30); })();
+    if (src.requestVideoFrameCallback) {
+      (function onVideoFrame() {
+        if (!drawing) return;
+        frame(); X.vframes++;
+        src.requestVideoFrameCallback(onVideoFrame);
+      })();
+    }
 
     var total = keptLength(), done = 0, i = 0;
-    X.overshoot = []; X.frames = 0;
+    X.overshoot = []; X.frames = 0; X.vframes = 0;
     function cleanup() {
       drawing = false; src.pause();
       if (rec.state !== 'inactive') rec.stop();
@@ -1482,7 +1496,9 @@ function finishExport(blob) {
   S.outUrl = URL.createObjectURL(blob);
   $('result').src = S.outUrl;
   var ext = /mp4/.test(blob.type) ? 'mp4' : 'webm';
-  $('done-info').textContent = fmt(keptLength()) + ' · ' + ext + ' · ' + (blob.size / 1048576).toFixed(1) + ' МБ';
+  // Фактическая частота кадров — сразу видно, плавный ли вышел ролик (норма ~30 к/с).
+  var fps = X.vframes > 0 && keptLength() > 0 ? ' · ' + Math.round(X.vframes / keptLength()) + ' к/с' : '';
+  $('done-info').textContent = fmt(keptLength()) + ' · ' + ext + ' · ' + (blob.size / 1048576).toFixed(1) + ' МБ' + fps;
   show('done');
 }
 
