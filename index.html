@@ -266,7 +266,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.4.2';
+var APP_VERSION = '0.4.3';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -1375,6 +1375,7 @@ function startExport() {
   X.mode = 'frames';
   X.how = '';
   X.pf = { rvfc: 0, poll: 0 };
+  X.prate = 0;
   $('xnote').textContent = 'Готовлю сборку…';
   // Ждём конца «пуск-стоп» разблокировки: иначе её запоздалый стоп останавливал плеер,
   // из которого берутся кадры («видео перестало играть», найдено 20.10).
@@ -1601,13 +1602,15 @@ async function runExportFrames(opts) {
     if (opts.player || (X.force && X.force.player)) viaDecoder = false;
     if (!viaDecoder && !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) throw unsupported('телефон не умеет читать кадры видео');
 
-    var first = vtracks.get(S.segs[0].clip), W, H, sizeOk = false;
-    for (var side of [1920, 1280]) {                  // 1080p, а если кодировщик не тянет — 720p
-      var k = Math.min(1, side / Math.max(first.displayWidth, first.displayHeight));
+    // 1080p в H.264 → 1080p в HEVC (аппаратный у iPhone; «Фото» и соцсети его принимают) → 720p.
+    // Замер 20.10: Safari отказал H.264 в 1080×1920, и ролик вышел 720×1280 — HEVC это обходит.
+    var first = vtracks.get(S.segs[0].clip), W, H, vcodec = null;
+    for (var opt of [['avc', 1920], ['hevc', 1920], ['avc', 1280]]) {
+      var k = Math.min(1, opt[1] / Math.max(first.displayWidth, first.displayHeight));
       W = Math.round(first.displayWidth * k / 2) * 2; H = Math.round(first.displayHeight * k / 2) * 2;
-      if (await M.canEncodeVideo('avc', { width: W, height: H })) { sizeOk = true; break; }
+      if (await M.canEncodeVideo(opt[0], { width: W, height: H })) { vcodec = opt[0]; break; }
     }
-    if (!sizeOk) throw unsupported('телефон не кодирует H.264');
+    if (!vcodec) throw unsupported('телефон не кодирует видео ни в H.264, ни в HEVC');
 
     var RATE = 48000, CH = 2, audioEncode = !(X.force && X.force.copyAudio) && await M.canEncodeAudio('aac', { numberOfChannels: CH, sampleRate: RATE });
     var audioCfg = null;
@@ -1623,7 +1626,8 @@ async function runExportFrames(opts) {
         audioCfg = audioCfg || cfg;
       }
     }
-    X.how = (viaDecoder ? 'кадры: декодер' : 'кадры: плеер') + ', звук: ' + (audioEncode ? 'сжатие' : 'копия');
+    X.how = (vcodec === 'hevc' ? 'HEVC ' : 'H.264 ') + Math.min(W, H) + 'p · ' +
+      (viaDecoder ? 'кадры: декодер' : 'кадры: плеер') + ', звук: ' + (audioEncode ? 'сжатие' : 'копия');
     $('xnote').textContent = viaDecoder
       ? 'Собираю кадр за кадром. Не сворачивайте приложение и не блокируйте экран.'
       : 'Собираю кадр за кадром через плеер — это займёт примерно вдвое больше длины ролика. Не сворачивайте приложение и не блокируйте экран.';
@@ -1637,7 +1641,7 @@ async function runExportFrames(opts) {
     if (cv.parentNode !== $('xstage')) $('xstage').appendChild(cv);
 
     var output = new M.Output({ format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new M.BufferTarget() });
-    var vsrc = new M.CanvasSource(cv, { codec: 'avc', quality: M.QUALITY_HIGH, keyFrameInterval: 1 });
+    var vsrc = new M.CanvasSource(cv, { codec: vcodec, quality: M.QUALITY_HIGH, keyFrameInterval: 1 });
     var asrc = audioEncode ? new M.AudioBufferSource({ codec: 'aac', quality: M.QUALITY_HIGH }) : new M.EncodedAudioPacketSource('aac');
     output.addVideoTrack(vsrc);
     output.addAudioTrack(asrc);
@@ -1695,7 +1699,7 @@ async function runExportFrames(opts) {
     }
     X.vframes = frames;
     // Для диагностики по скриншоту: сколько кадров пришло показом кадра, а сколько опросом времени.
-    if (!viaDecoder) X.how += ' [' + X.pf.rvfc + '/' + X.pf.poll + ']';
+    if (!viaDecoder) X.how += ' ' + (X.prate || 0.5) + '× [' + X.pf.rvfc + '/' + X.pf.poll + ']';
     return new Blob([output.target.buffer], { type: 'video/mp4' });
   } finally {
     release();
@@ -1763,11 +1767,29 @@ function playerFrames(el, sg, onFrame) {
       document.removeEventListener('visibilitychange', onVis);
       chain.then(function () { if (err) rej(err); else res(); }, rej);
     }
-    function take(t) {
+    // Подстройка скорости: если между пойманными кадрами дыры (кадр пропущен), замедляем плеер,
+    // пока не перестанет (замер 20.10: на 0.5× каждый третий кадр терялся — 22 к/с вместо 30).
+    var step = 1, seen = 0, gaps = 0;
+    function adapt(t) {
+      if (last < 0) return;
+      var dt = t - last;
+      if (dt <= 0.001) return;
+      step = Math.min(step, dt);
+      seen++;
+      if (dt > step * 1.6) gaps++;
+      if (seen >= 20) {
+        if (gaps / seen > 0.08 && el.playbackRate > 0.26) {
+          X.prate = el.playbackRate = Math.max(0.25, Math.round(el.playbackRate * 0.7 * 100) / 100);
+        }
+        seen = gaps = 0;
+      }
+    }
+    function take(t, shown) {     // shown — кадр пришёл «показом» (rVFC), а не опросом времени
       if (finished) return;
       if (X.cancel) return finish(new Error('cancel'));
       if (t >= sg.b - 0.001) return finish();
       if (t >= sg.a - 0.02 && t > last + 0.001) {
+        if (shown) adapt(t);
         last = t;
         // Рисуем СРАЗУ, пока этот кадр на экране; кодирование догоняет в своей очереди.
         var p = onFrame(t);
@@ -1778,10 +1800,10 @@ function playerFrames(el, sg, onFrame) {
       if (finished) return;
       lastRVFC = Date.now();
       X.pf.rvfc++;
-      take(meta.mediaTime);
+      take(meta.mediaTime, true);
       el.requestVideoFrameCallback(onVideoFrame);
     }
-    el.muted = true; el.playbackRate = 0.5;
+    el.muted = true; el.playbackRate = X.prate || 0.5;     // скорость, подобранная на прошлых кусках
     loadInto(el, sg.clip).then(function () { return seek(el, sg.a); }).then(function () {
       // После перемотки на экране уже кадр начала куска — берём его сразу: иначе первым пришёл бы
       // следующий кадр, а в ролике до него висел бы хвост прошлого куска (замер: +110 мс на стыках).
