@@ -246,7 +246,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
     <div class="rec"><span class="dot"></span>Сборка</div>
     <div class="pct" id="xpct">0%</div>
     <div class="bar"><i id="xbar"></i></div>
-    <p class="muted">Видео собирается в реальном времени. Не сворачивайте приложение и не блокируйте экран.</p>
+    <p class="muted" id="xnote">Готовлю сборку…</p>
     <button class="btn ghost" id="xcancel">Отмена</button>
   </section>
 
@@ -266,7 +266,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.4.1';
+var APP_VERSION = '0.4.2';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -1258,7 +1258,7 @@ function previewLoop() {
 // кадры рисуются на холст вместе с титрами, холст + звук пишутся через MediaRecorder.
 // Между кусками запись на паузе — перемотки и смена файла в итог не попадают.
 
-var X = { ctx: null, gain: null, dest: null, cancel: false, lock: null, overshoot: [] };
+var X = { ctx: null, gain: null, dest: null, cancel: false, lock: null, overshoot: [], pf: { rvfc: 0, poll: 0 } };
 
 function pickMime() {
   if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return '';
@@ -1369,20 +1369,31 @@ function startExport() {
 
   X.cancel = false; X.hiddenAbort = false; X.stage = 'подготовка';
   show('export'); setProgress(0);
-  // Сначала покадровая сборка (WebCodecs): без потерь кадров и обычно быстрее реального времени.
-  // Не умеет телефон или споткнулась — «живая» сборка, как раньше.
+  // Цепочка: покадровая через аппаратный декодер → (декодер упал) покадровая через плеер.
+  // «Живая» сборка (проигрывание + MediaRecorder) — ТОЛЬКО если нет кодировщика вообще (старые iOS):
+  // в Safari она растягивает ролик паузами и теряет кадры (замеры 19–20.10), лучше честная ошибка.
   X.mode = 'frames';
   X.how = '';
-  runExportFrames().catch(function (e) {
+  X.pf = { rvfc: 0, poll: 0 };
+  $('xnote').textContent = 'Готовлю сборку…';
+  // Ждём конца «пуск-стоп» разблокировки: иначе её запоздалый стоп останавливал плеер,
+  // из которого берутся кадры («видео перестало играть», найдено 20.10).
+  ready.then(function () { return runExportFrames(); }).catch(function (e) {
     if (e && e.message === 'cancel') throw e;
-    // Причину показываем ВСЕГДА: «живая» сборка в Safari растягивает ролик и теряет кадры,
-    // так что молча на неё переходить нельзя (в 0.4.0 iPhone так и делал, а мы не видели почему).
-    console.warn('покадровая сборка не удалась', e);
-    toast((e && e.unsupported ? 'Покадровая сборка недоступна: ' : 'Покадровая сборка не удалась: ') + errText(e) +
-          '. Собираю обычным способом — ролик может выйти рваным.', 15000);
-    X.how = 'обычная (' + errText(e) + ')';
+    if (e && e.decoderFailed) {
+      console.warn('декодер упал посреди сборки, перехожу на плеер', e);
+      toast('Декодер Safari не справился с этим видео (' + errText(e) + ') — собираю через плеер: дольше, но надёжно.', 10000);
+      setProgress(0);
+      return runExportFrames({ player: true });
+    }
+    throw e;
+  }).catch(function (e) {
+    if (!(e && e.noEncoder)) throw e;
+    toast('В этой версии iOS нет кодировщика видео — собираю старым способом, ролик может выйти рваным. Обновите iOS.', 15000);
+    X.how = 'обычная (нет VideoEncoder)';
     X.mode = 'live'; X.stage = 'подготовка'; setProgress(0);
     $('xstage').classList.remove('frames');
+    $('xnote').textContent = 'Видео собирается в реальном времени. Не сворачивайте приложение и не блокируйте экран.';
     return ready.then(function () { return runExport(src); });
   }).then(finishExport, function (e) {
     releaseLock();
@@ -1548,8 +1559,13 @@ function clipAudio(c, rate) {
 //   звук:     сжатие заново (AudioEncoder) → если его нет (появился в Safari недавно),
 //             копируем готовые кусочки AAC из файла (склейка с точностью ~21 мс).
 // Обязателен только кодировщик картинки (VideoEncoder, Safari 16.4+).
-async function runExportFrames() {
-  if (typeof VideoEncoder === 'undefined') throw unsupported('в этой версии Safari нет VideoEncoder — обновите iOS');
+async function runExportFrames(opts) {
+  opts = opts || {};
+  if (typeof VideoEncoder === 'undefined') {
+    var noEnc = unsupported('в этой версии Safari нет VideoEncoder — обновите iOS');
+    noEnc.noEncoder = true;
+    throw noEnc;
+  }
   X.stage = 'загрузка модуля сборки';
   var M = await loadMediabunny();
   var inputs = new Map();
@@ -1571,9 +1587,18 @@ async function runExportFrames() {
       if (!vt) throw unsupported('в ролике «' + c.name + '» нет видео');
       if (!at) throw unsupported('в ролике «' + c.name + '» нет звука');
       if (viaDecoder && !(await vt.canDecode())) viaDecoder = false;
+      // Safari на HEVC с iPhone отвечает «умею», а потом падает с «Decoder failure» (19–20.10,
+      // и это известная беда WebKit). Поэтому пробуем по-настоящему декодировать первые кадры.
+      if (viaDecoder && !opts.player) {
+        try {
+          var got = false;
+          for await (var ps of new M.VideoSampleSink(vt).samples(0, 0.5)) { ps.close(); got = true; break; }
+          if (!got) viaDecoder = false;
+        } catch (pe) { console.warn('декодер не справился на пробе', pe); viaDecoder = false; }
+      }
       vtracks.set(c, vt); atracks.set(c, at);
     }
-    if (X.force && X.force.player) viaDecoder = false;            // для проверки запасных путей из консоли
+    if (opts.player || (X.force && X.force.player)) viaDecoder = false;
     if (!viaDecoder && !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) throw unsupported('телефон не умеет читать кадры видео');
 
     var first = vtracks.get(S.segs[0].clip), W, H, sizeOk = false;
@@ -1599,6 +1624,9 @@ async function runExportFrames() {
       }
     }
     X.how = (viaDecoder ? 'кадры: декодер' : 'кадры: плеер') + ', звук: ' + (audioEncode ? 'сжатие' : 'копия');
+    $('xnote').textContent = viaDecoder
+      ? 'Собираю кадр за кадром. Не сворачивайте приложение и не блокируйте экран.'
+      : 'Собираю кадр за кадром через плеер — это займёт примерно вдвое больше длины ролика. Не сворачивайте приложение и не блокируйте экран.';
 
     var cv = X.cv || (X.cv = document.createElement('canvas'));
     cv.width = W; cv.height = H;
@@ -1630,14 +1658,21 @@ async function runExportFrames() {
           return vsrc.add(base + (st - sg.a), Math.max(0.001, Math.min(dur, sg.b - st)));
         };
         if (viaDecoder) {
-          var sink = new M.VideoSampleSink(vtracks.get(sg.clip));
-          for await (var s of sink.samples(sg.a, sg.b)) {
-            if (X.cancel) { s.close(); throw new Error('cancel'); }
-            if (Math.min(s.timestamp + s.duration, sg.b) - Math.max(s.timestamp, sg.a) < 0.0005) { s.close(); continue; }
-            await addFrame(s.timestamp, s.timestamp + s.duration - Math.max(s.timestamp, sg.a), function () {
-              s.drawWithFit(g, { fit: 'cover' });     // поворот видео с iPhone учитывается сам
-            });
-            s.close();
+          try {
+            if (X.force && X.force.failDecoder && i === 1) throw new Error('Decoder failure (проверка)');
+            var sink = new M.VideoSampleSink(vtracks.get(sg.clip));
+            for await (var s of sink.samples(sg.a, sg.b)) {
+              if (X.cancel) { s.close(); throw new Error('cancel'); }
+              if (Math.min(s.timestamp + s.duration, sg.b) - Math.max(s.timestamp, sg.a) < 0.0005) { s.close(); continue; }
+              await addFrame(s.timestamp, s.timestamp + s.duration - Math.max(s.timestamp, sg.a), function () {
+                s.drawWithFit(g, { fit: 'cover' });     // поворот видео с iPhone учитывается сам
+              });
+              s.close();
+            }
+          } catch (de) {
+            // Декодер упал посреди работы — вызывающий код перезапустит сборку через плеер.
+            if (de && de.message !== 'cancel') de.decoderFailed = true;
+            throw de;
           }
         } else {
           await playerFrames($('xvideo'), sg, function (t) {
@@ -1659,6 +1694,8 @@ async function runExportFrames() {
       throw e;
     }
     X.vframes = frames;
+    // Для диагностики по скриншоту: сколько кадров пришло показом кадра, а сколько опросом времени.
+    if (!viaDecoder) X.how += ' [' + X.pf.rvfc + '/' + X.pf.poll + ']';
     return new Blob([output.target.buffer], { type: 'video/mp4' });
   } finally {
     release();
@@ -1717,9 +1754,13 @@ async function copyAudio(M, asrc, atracks, cfg) {
 function playerFrames(el, sg, onFrame) {
   return new Promise(function (res, rej) {
     var finished = false, last = -1, chain = Promise.resolve(), lastMove = Date.now(), lastT = -1, lastRVFC = 0, poll;
+    // Свернули приложение — iOS ставит видео на паузу. Это не поломка: вернули — играем дальше.
+    function onVis() { if (!document.hidden && !finished) playSafe(el).catch(function () {}); }
+    document.addEventListener('visibilitychange', onVis);
     function finish(err) {
       if (finished) return;
       finished = true; clearInterval(poll); el.pause();
+      document.removeEventListener('visibilitychange', onVis);
       chain.then(function () { if (err) rej(err); else res(); }, rej);
     }
     function take(t) {
@@ -1736,18 +1777,22 @@ function playerFrames(el, sg, onFrame) {
     function onVideoFrame(now, meta) {
       if (finished) return;
       lastRVFC = Date.now();
+      X.pf.rvfc++;
       take(meta.mediaTime);
       el.requestVideoFrameCallback(onVideoFrame);
     }
     el.muted = true; el.playbackRate = 0.5;
     loadInto(el, sg.clip).then(function () { return seek(el, sg.a); }).then(function () {
+      // После перемотки на экране уже кадр начала куска — берём его сразу: иначе первым пришёл бы
+      // следующий кадр, а в ролике до него висел бы хвост прошлого куска (замер: +110 мс на стыках).
+      take(Math.max(sg.a, el.currentTime));
       if (el.requestVideoFrameCallback) el.requestVideoFrameCallback(onVideoFrame);
       el.addEventListener('ended', function onEnd() { el.removeEventListener('ended', onEnd); finish(); });
       poll = setInterval(function () {
         var t = el.currentTime;
-        if (t !== lastT) { lastT = t; lastMove = Date.now(); }
+        if (t !== lastT || document.hidden) { lastT = t; lastMove = Date.now(); }
         else if (Date.now() - lastMove > 6000) return finish(new Error('видео перестало играть'));
-        if (Date.now() - lastRVFC > 250 && t > last + 1 / 40) take(t);
+        if (Date.now() - lastRVFC > 250 && t > last + 1 / 40) { X.pf.poll++; take(t); }
         if (t >= sg.b - 0.001) finish();
       }, 15);
       return playSafe(el);
