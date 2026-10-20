@@ -266,7 +266,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.4.3';
+var APP_VERSION = '0.4.4';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -1602,15 +1602,15 @@ async function runExportFrames(opts) {
     if (opts.player || (X.force && X.force.player)) viaDecoder = false;
     if (!viaDecoder && !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) throw unsupported('телефон не умеет читать кадры видео');
 
-    // 1080p в H.264 → 1080p в HEVC (аппаратный у iPhone; «Фото» и соцсети его принимают) → 720p.
-    // Замер 20.10: Safari отказал H.264 в 1080×1920, и ролик вышел 720×1280 — HEVC это обходит.
-    var first = vtracks.get(S.segs[0].clip), W, H, vcodec = null;
-    for (var opt of [['avc', 1920], ['hevc', 1920], ['avc', 1280]]) {
-      var k = Math.min(1, opt[1] / Math.max(first.displayWidth, first.displayHeight));
+    var first = vtracks.get(S.segs[0].clip), W, H, enc = null;
+    for (var side of [1920, 1280]) {
+      var k = Math.min(1, side / Math.max(first.displayWidth, first.displayHeight));
       W = Math.round(first.displayWidth * k / 2) * 2; H = Math.round(first.displayHeight * k / 2) * 2;
-      if (await M.canEncodeVideo(opt[0], { width: W, height: H })) { vcodec = opt[0]; break; }
+      enc = await pickEncoder(M, W, H);
+      if (enc) break;
     }
-    if (!vcodec) throw unsupported('телефон не кодирует видео ни в H.264, ни в HEVC');
+    if (!enc) throw unsupported('телефон не кодирует видео ни в H.264, ни в HEVC');
+    var vcodec = enc.codec;
 
     var RATE = 48000, CH = 2, audioEncode = !(X.force && X.force.copyAudio) && await M.canEncodeAudio('aac', { numberOfChannels: CH, sampleRate: RATE });
     var audioCfg = null;
@@ -1626,7 +1626,7 @@ async function runExportFrames(opts) {
         audioCfg = audioCfg || cfg;
       }
     }
-    X.how = (vcodec === 'hevc' ? 'HEVC ' : 'H.264 ') + Math.min(W, H) + 'p · ' +
+    X.how = (vcodec === 'hevc' ? 'HEVC ' : 'H.264 ') + Math.min(W, H) + 'p' + (enc.rot ? ' (лёжа)' : '') + ' · ' +
       (viaDecoder ? 'кадры: декодер' : 'кадры: плеер') + ', звук: ' + (audioEncode ? 'сжатие' : 'копия');
     $('xnote').textContent = viaDecoder
       ? 'Собираю кадр за кадром. Не сворачивайте приложение и не блокируйте экран.'
@@ -1639,11 +1639,19 @@ async function runExportFrames(opts) {
     // Превью на экране «Сборка» — сам собираемый кадр.
     $('xstage').classList.add('frames');
     if (cv.parentNode !== $('xstage')) $('xstage').appendChild(cv);
+    // «Лёжа»: кадр поворачиваем на холст H×W, а в файле пишем «повернуть на 90°» — как хранит сам iPhone.
+    var ec = cv, eg = null;
+    if (enc.rot) {
+      ec = X.ec || (X.ec = document.createElement('canvas'));
+      ec.width = H; ec.height = W;
+      eg = ec.getContext('2d');
+      if (!eg) throw new Error('телефон не выделил память под кадр ' + H + '×' + W);
+    }
 
     var output = new M.Output({ format: new M.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new M.BufferTarget() });
-    var vsrc = new M.CanvasSource(cv, { codec: vcodec, quality: M.QUALITY_HIGH, keyFrameInterval: 1 });
+    var vsrc = new M.CanvasSource(ec, { codec: vcodec, fullCodecString: enc.full, quality: M.QUALITY_HIGH, keyFrameInterval: 1 });
     var asrc = audioEncode ? new M.AudioBufferSource({ codec: 'aac', quality: M.QUALITY_HIGH }) : new M.EncodedAudioPacketSource('aac');
-    output.addVideoTrack(vsrc);
+    output.addVideoTrack(vsrc, enc.rot ? { rotation: 90 } : undefined);
     output.addAudioTrack(asrc);
     await output.start();
 
@@ -1657,6 +1665,11 @@ async function runExportFrames(opts) {
           g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
           draw();
           drawSubs(g, W, H, sg.clip.offset + st);
+          if (eg) {                                  // поворот на −90°: плеер вернёт его по пометке в файле
+            eg.setTransform(0, -1, 1, 0, 0, W);
+            eg.drawImage(cv, 0, 0);
+            eg.setTransform(1, 0, 0, 1, 0, 0);
+          }
           frames++;
           setProgress(0.9 * (base + Math.min(sg.b, st + dur) - sg.a) / total);
           return vsrc.add(base + (st - sg.a), Math.max(0.001, Math.min(dur, sg.b - st)));
@@ -1704,6 +1717,27 @@ async function runExportFrames(opts) {
   } finally {
     release();
   }
+}
+
+// Подбор кодировщика. Библиотека сама сочиняет строку кодека, и Safari на iPhone на 1080×1920
+// отвечал «нет» и для H.264, и для HEVC (ролики выходили 720p). Спрашиваем WebCodecs напрямую
+// про конкретные профили — и вертикально, и «лёжа» (1920×1080 с пометкой «повернуть на 90°»).
+async function pickEncoder(M, w, h) {
+  var codecs = [['avc', 'avc1.640028'], ['avc', 'avc1.4D4028'], ['avc', 'avc1.42E028'], ['avc', 'avc1.640032'],
+                ['hevc', 'hvc1.1.6.L123.B0'], ['hevc', 'hvc1.1.6.L120.B0']];
+  var sizes = X.force && X.force.rot ? [] : [[w, h, 0]];        // force.rot — проверка «лёжа» из консоли
+  if (w !== h) sizes.push([h, w, 90]);
+  for (var sz of sizes) {
+    for (var c of codecs) {
+      try {
+        var r = await VideoEncoder.isConfigSupported({ codec: c[1], width: sz[0], height: sz[1], bitrate: 10e6, framerate: 30 });
+        if (r && r.supported) return { codec: c[0], full: c[1], rot: sz[2] };
+      } catch (e) {}
+    }
+  }
+  // Последняя попытка — как раньше, строкой, которую подберёт библиотека.
+  for (var cc of ['avc', 'hevc']) if (await M.canEncodeVideo(cc, { width: w, height: h })) return { codec: cc, full: undefined, rot: 0 };
+  return null;
 }
 
 // Звук для сжатия: склеиваем нужные куски в один буфер, на стыках — мягкие 10 мс, чтобы не щёлкало.
