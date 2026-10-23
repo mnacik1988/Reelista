@@ -143,6 +143,25 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 .take.cutted .txt{color:var(--muted);text-decoration:line-through}
 .take small{display:block;font-size:11px;color:var(--muted);margin-top:2px}
 
+/* съёмка */
+.cam{position:relative;flex:1;min-height:62vh;min-height:62dvh;background:#000;border:.5px solid var(--line);border-radius:18px;overflow:hidden}
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.cam video.mirror{transform:scaleX(-1)}
+.cam-top{position:absolute;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.cam-pill{height:34px;padding:0 12px;border-radius:17px;border:.5px solid var(--line2);background:rgba(14,14,16,.6);color:var(--text);font-size:13px;display:inline-flex;align-items:center;gap:6px}
+.cam-pill.on{border-color:var(--accent);color:#fff}
+.cam-pill.off{color:var(--muted)}
+.rec-time{color:#fff;font-variant-numeric:tabular-nums}
+.rec-time::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);animation:bl 1.2s ease-in-out infinite}
+.cam-count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:200;font-size:120px;color:#fff;text-shadow:0 2px 20px rgba(0,0,0,.5)}
+.cam-hint{position:absolute;left:12px;right:12px;bottom:12px;text-align:center;font-size:13px;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.7)}
+.cam-hold{display:block;width:120px;height:3px;margin:8px auto 0;border-radius:2px;background:rgba(255,255,255,.25);overflow:hidden}
+.cam-hold b{display:block;height:100%;width:0;background:var(--accent)}
+.cam-bar{display:flex;align-items:center;justify-content:space-between;padding:16px 4px 4px}
+.rec-btn{width:72px;height:72px;border-radius:50%;border:3px solid #fff;background:transparent;display:flex;align-items:center;justify-content:center;padding:0}
+.rec-btn i{display:block;width:56px;height:56px;border-radius:50%;background:var(--accent);transition:all .15s}
+.rec-btn.on i{width:28px;height:28px;border-radius:6px}
+
 .toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:488px;margin:0 auto;
   background:var(--panel);border:.5px solid var(--accent);border-radius:12px;padding:12px 14px;font-size:14px;z-index:10}
 </style>
@@ -165,7 +184,27 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
     <p class="muted">Выберите ролик или сразу несколько дублей — приложение склеит их по порядку, уберёт паузы и повторы.</p>
     <label class="btn primary" for="file">Выбрать видео</label>
     <input id="file" class="vh" type="file" accept="video/*" multiple>
+    <button class="btn ghost" id="shoot" style="margin-top:10px">Снять с жестами</button>
     <p class="tiny">Каждый файл до 4 минут. Монтаж считается прямо на телефоне, для титров на сервер уходит только звук.</p>
+  </section>
+
+  <!-- 1а. Съёмка с жестами -->
+  <section id="scr-cam" hidden>
+    <div class="cam" id="cam">
+      <video id="camv" playsinline muted autoplay></video>
+      <div class="cam-top">
+        <button class="cam-pill" id="cam-close" aria-label="Закрыть">✕</button>
+        <span class="cam-pill rec-time" id="cam-timer" hidden></span>
+        <button class="cam-pill" id="cam-hand">✋ Жесты</button>
+      </div>
+      <div class="cam-count" id="cam-count" hidden></div>
+      <div class="cam-hint"><span id="cam-hint"></span><i class="cam-hold"><b id="cam-hold"></b></i></div>
+    </div>
+    <div class="cam-bar">
+      <button class="cam-pill" id="cam-flip" aria-label="Сменить камеру">⟲</button>
+      <button class="rec-btn" id="cam-rec" aria-label="Запись"><i></i></button>
+      <button class="cam-pill" id="cam-done">Готово · 0</button>
+    </div>
   </section>
 
   <!-- 2. Анализ звука -->
@@ -221,6 +260,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
     <p class="tiny" style="margin:0 0 6px;max-width:none">Склеиваются сверху вниз. Порядок меняется стрелками.</p>
     <div id="clips-list"></div>
     <label class="btn ghost" for="file-add" style="margin-top:16px">Добавить ещё</label>
+    <button class="btn ghost" id="clips-shoot" style="margin-top:10px">Снять ещё дубль</button>
     <input id="file-add" class="vh" type="file" accept="video/*" multiple>
   </section>
 
@@ -266,7 +306,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.4.4';
+var APP_VERSION = '0.5.0';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -302,7 +342,7 @@ var clipSeq = 0;
 
 function $(id) { return document.getElementById(id); }
 function show(name) {
-  ['start', 'busy', 'edit', 'clips', 'dups', 'text', 'export', 'done'].forEach(function (n) { $('scr-' + n).hidden = n !== name; });
+  ['start', 'cam', 'busy', 'edit', 'clips', 'dups', 'text', 'export', 'done'].forEach(function (n) { $('scr-' + n).hidden = n !== name; });
 }
 function fmt(t) {
   t = Math.max(0, t || 0);
@@ -376,7 +416,8 @@ function loadFiles(files, replace) {
     var label = '«' + (f.name || 'видео') + '» (' + Math.round(f.size / 1048576) + ' МБ)';
     return readAudio(f).then(function (ab) {
       try {
-        var c = { id: ++clipSeq, name: f.name || ('Ролик ' + clipSeq), url: URL.createObjectURL(f), file: f, words: null };
+        var c = { id: ++clipSeq, name: f.name || ('Ролик ' + clipSeq), url: URL.createObjectURL(f), file: f, words: null,
+                  trimEnd: f.trimEnd || 0 };
         analyseClip(c, ab);
         c.pcm = to16k(ab);        // звук для распознавания: 16 кГц моно, ~2 МБ на минуту
         S.clips.push(c);
@@ -523,6 +564,13 @@ function clipById(id) { for (var i = 0; i < S.clips.length; i++) if (S.clips[i].
 /* ---------- Что вырезать ---------- */
 
 function pauseCutsFor(c) {
+  var cuts = pauseCutsLocal(c);
+  // Дубль, остановленный жестом: хвост с поднятой рукой отрезаем всегда (trimEnd — секунда от начала файла).
+  if (c.trimEnd > 0.2 && c.trimEnd < c.dur - 0.05) cuts.push([c.trimEnd, c.dur]);
+  return cuts.map(function (x) { return [x[0] + c.offset, x[1] + c.offset]; });
+}
+
+function pauseCutsLocal(c) {
   var L = LEVELS[S.level], sp = c.sp, n = sp.length, cuts = [], k, s;
   if (c.flat) return cuts;
   var first = -1, last = -1;
@@ -543,7 +591,7 @@ function pauseCutsFor(c) {
   }
   var tail = (last + 1) * HOP + L.pad;
   if (c.dur - tail > 0.05) cuts.push([tail, c.dur]);
-  return cuts.map(function (x) { return [x[0] + c.offset, x[1] + c.offset]; });
+  return cuts;
 }
 
 function rebuild() {
@@ -828,6 +876,218 @@ $('dups').addEventListener('change', function () {
 });
 $('dups-open').addEventListener('click', function () { stopPreview(); renderDups(); show('dups'); window.scrollTo(0, 0); });
 $('dups-done').addEventListener('click', function () { rebuildCuts(); show('edit'); renderEdit(); });
+
+/* ---------- Съёмка с жестами ---------- */
+// Камера внутри приложения: каждый дубль — отдельный файл, потом всё идёт в обычный монтаж
+// (паузы, поиск дублей, титры). Жест «открытая ладонь» (MediaPipe, прямо на телефоне):
+// подержать полсекунды → отсчёт 3-2-1 → запись; ещё раз → стоп, хвост с рукой отрезается.
+
+var MP_BASE = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1';
+var GESTURE_MODEL = 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
+var HOLD_MS = 500, COOLDOWN_MS = 1500;
+var CAM = { stream: null, facing: 'user', rec: null, chunks: [], recStart: 0, trimAt: 0, takes: [], from: 'start',
+            gesture: store('gesture') !== '0', gr: null, grLoading: null, palmSince: 0, lastGesture: 0,
+            counting: false, timerIv: null, loopT: null, ac: null, lock: null };
+
+$('shoot').addEventListener('click', function () { openCamera('start'); });
+$('clips-shoot').addEventListener('click', function () { openCamera('clips'); });
+
+function openCamera(from) {
+  stopPreview();
+  CAM.from = from; CAM.takes = [];
+  show('cam');
+  // Звуковой движок для писка отсчёта — создаём прямо в нажатии, иначе iOS его не пустит.
+  try { CAM.ac = CAM.ac || new (window.AudioContext || window.webkitAudioContext)(); CAM.ac.resume(); } catch (e) {}
+  if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { CAM.lock = l; }, function () {});
+  updateCamUi();
+  startStream().catch(function (e) {
+    toast('Нет доступа к камере (' + errText(e) + '). Разрешите камеру и микрофон для сайта в настройках Safari.', 12000);
+  });
+  if (CAM.gesture) ensureGesture();
+}
+
+function startStream() {
+  stopStream();
+  return navigator.mediaDevices.getUserMedia({
+    video: { facingMode: CAM.facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+    // Без «телефонной» обработки голоса: она режет тембр, а говорящая голова снимается в тишине.
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+  }).then(function (s) {
+    CAM.stream = s;
+    var v = $('camv');
+    v.srcObject = s;
+    v.classList.toggle('mirror', CAM.facing === 'user');   // зеркало только на экране, запись — как есть
+    return v.play();
+  }).then(function () { if (CAM.gr) gestureLoop(); });
+}
+function stopStream() {
+  if (CAM.stream) CAM.stream.getTracks().forEach(function (t) { t.stop(); });
+  CAM.stream = null;
+}
+
+function updateCamUi() {
+  $('cam-done').textContent = 'Готово · ' + CAM.takes.length;
+  $('cam-rec').classList.toggle('on', !!CAM.rec);
+  $('cam-hand').classList.toggle('on', CAM.gesture);
+  $('cam-hand').classList.toggle('off', !CAM.gesture);
+  $('cam-hand').textContent = CAM.gesture ? '✋ Жесты' : '✋ Выкл';
+  $('cam-flip').disabled = !!CAM.rec;
+  var hint;
+  if (CAM.counting) hint = '';
+  else if (CAM.rec) hint = CAM.gesture && CAM.gr ? 'Покажите ладонь, чтобы остановить' : 'Нажмите кнопку, чтобы остановить';
+  else if (CAM.gesture && CAM.grLoading) hint = 'Загружаю распознавание жестов…';
+  else if (CAM.gesture && CAM.gr) hint = 'Покажите ладонь — через 3 секунды начнётся запись';
+  else hint = 'Нажмите кнопку, чтобы начать запись';
+  $('cam-hint').textContent = hint;
+}
+
+function beep(freq, ms) {
+  if (!CAM.ac) return;
+  try {
+    var o = CAM.ac.createOscillator(), g = CAM.ac.createGain(), t = CAM.ac.currentTime;
+    o.frequency.value = freq; g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.001, t + ms / 1000);
+    o.connect(g); g.connect(CAM.ac.destination); o.start(t); o.stop(t + ms / 1000);
+  } catch (e) {}
+}
+
+function startCountdown() {
+  if (CAM.counting || CAM.rec) return;
+  CAM.counting = true; updateCamUi();
+  var n = 3, el = $('cam-count');
+  el.hidden = false;
+  (function tick() {
+    if (!CAM.counting) { el.hidden = true; return; }
+    if (n === 0) { el.hidden = true; CAM.counting = false; startRec(); return; }
+    el.textContent = n; beep(n === 1 ? 1320 : 880, 120); n--;
+    setTimeout(tick, 1000);
+  })();
+}
+
+function startRec() {
+  if (!CAM.stream || CAM.rec) return;
+  var mime = pickMime(), opts = { videoBitsPerSecond: 10e6, audioBitsPerSecond: 160000 };
+  if (mime) opts.mimeType = mime;
+  var rec;
+  try { rec = new MediaRecorder(CAM.stream, opts); } catch (e) { toast('Запись не запустилась: ' + errText(e)); return; }
+  CAM.chunks = []; CAM.trimAt = 0;
+  rec.ondataavailable = function (e) { if (e.data && e.data.size) CAM.chunks.push(e.data); };
+  rec.onstop = function () { finishTake(rec); };
+  rec.start(1000);
+  CAM.rec = rec; CAM.recStart = performance.now();
+  $('cam-timer').hidden = false;
+  clearInterval(CAM.timerIv);
+  CAM.timerIv = setInterval(function () { $('cam-timer').textContent = fmt((performance.now() - CAM.recStart) / 1000); }, 250);
+  $('cam-timer').textContent = '0:00';
+  updateCamUi();
+}
+
+// trimAt — сколько секунд от начала дубля оставить (0 — весь дубль).
+function stopRec(trimAt) {
+  if (!CAM.rec || CAM.rec.state === 'inactive') return;
+  CAM.trimAt = trimAt || 0;
+  CAM.rec.stop();
+}
+
+function finishTake(rec) {
+  clearInterval(CAM.timerIv); $('cam-timer').hidden = true;
+  var type = ((rec && rec.mimeType) || pickMime() || 'video/mp4').split(';')[0];
+  var f = new File(CAM.chunks, 'Дубль ' + (CAM.takes.length + 1) + (/mp4/.test(type) ? '.mp4' : '.webm'), { type: type });
+  f.trimEnd = CAM.trimAt;
+  CAM.rec = null; CAM.chunks = [];
+  if (f.size > 0) { CAM.takes.push(f); toast('Дубль ' + CAM.takes.length + ' записан', 2500); }
+  updateCamUi();
+}
+
+$('cam-rec').addEventListener('click', function () {
+  if (CAM.counting) { CAM.counting = false; updateCamUi(); return; }
+  if (CAM.rec) stopRec(0); else startRec();
+});
+$('cam-flip').addEventListener('click', function () {
+  if (CAM.rec) return;
+  CAM.facing = CAM.facing === 'user' ? 'environment' : 'user';
+  startStream().catch(function (e) { toast('Камера не переключилась: ' + errText(e)); });
+});
+$('cam-hand').addEventListener('click', function () {
+  CAM.gesture = !CAM.gesture; store('gesture', CAM.gesture ? '1' : '0');
+  if (CAM.gesture) ensureGesture(); else { CAM.palmSince = 0; setHold(0); }
+  updateCamUi();
+});
+$('cam-close').addEventListener('click', closeCamera);
+$('cam-done').addEventListener('click', closeCamera);
+// Свернули приложение во время записи — iOS отключит камеру, поэтому сохраняем дубль, а не теряем.
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden && CAM.rec) stopRec(0);
+  if (document.hidden) CAM.counting = false;
+});
+
+function closeCamera() {
+  var leave = function () {
+    clearTimeout(CAM.loopT); CAM.counting = false; $('cam-count').hidden = true;
+    stopStream();
+    if (CAM.lock) { CAM.lock.release().catch(function () {}); CAM.lock = null; }
+    var takes = CAM.takes; CAM.takes = [];
+    if (takes.length) loadFiles(takes, CAM.from === 'start');
+    else show(CAM.from === 'clips' ? 'clips' : 'start');
+  };
+  if (CAM.rec) { CAM.rec.addEventListener('stop', function () { setTimeout(leave, 0); }); stopRec(0); } else leave();
+}
+
+function setHold(p) { $('cam-hold').style.width = Math.round(p * 100) + '%'; }
+
+// Распознавание грузится только при первом включении жестов: модуль ~12 МБ и модель ~8 МБ.
+function ensureGesture() {
+  if (CAM.gr) { gestureLoop(); return Promise.resolve(CAM.gr); }
+  if (CAM.grLoading) return CAM.grLoading;
+  CAM.grLoading = import(MP_BASE + '/vision_bundle.mjs').then(function (mp) {
+    return mp.FilesetResolver.forVisionTasks(MP_BASE + '/wasm').then(function (fs) {
+      function opts(d) {
+        return { baseOptions: { modelAssetPath: GESTURE_MODEL, delegate: d }, runningMode: 'VIDEO', numHands: 1,
+                 minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5 };
+      }
+      return mp.GestureRecognizer.createFromOptions(fs, opts('GPU')).catch(function () {
+        return mp.GestureRecognizer.createFromOptions(fs, opts('CPU'));
+      });
+    });
+  }).then(function (gr) {
+    CAM.gr = gr; CAM.grLoading = null; updateCamUi(); gestureLoop(); return gr;
+  }, function (e) {
+    CAM.grLoading = null; CAM.gesture = false; updateCamUi();
+    toast('Жесты не загрузились (' + errText(e) + '). Снимайте кнопкой.', 10000);
+  });
+  updateCamUi();
+  return CAM.grLoading;
+}
+
+// ~8 проверок в секунду: жест ловится уверенно, а телефон не греется во время записи.
+function gestureLoop() {
+  clearTimeout(CAM.loopT);
+  if (!CAM.gr || !CAM.gesture || $('scr-cam').hidden || !CAM.stream) return;
+  var v = $('camv'), now = performance.now();
+  if (v.readyState >= 2 && !CAM.counting) {
+    var res = null;
+    try { res = CAM.gr.recognizeForVideo(v, now); } catch (e) {}
+    var g = res && res.gestures && res.gestures[0] && res.gestures[0][0];
+    onPalm(!!(g && g.categoryName === 'Open_Palm' && g.score > 0.6), now);
+  }
+  CAM.loopT = setTimeout(gestureLoop, 120);
+}
+
+function onPalm(palm, now) {
+  if (!palm) { CAM.palmSince = 0; setHold(0); return; }
+  if (now - CAM.lastGesture < COOLDOWN_MS) return;           // после жеста рука ещё поднята — не срабатываем повторно
+  if (!CAM.palmSince) CAM.palmSince = now;
+  var held = now - CAM.palmSince;
+  setHold(Math.min(1, held / HOLD_MS));
+  if (held < HOLD_MS) return;
+  CAM.lastGesture = now; setHold(0);
+  if (CAM.rec) {
+    // Режем с момента, когда рука пошла вверх: первое распознавание ладони минус ~0.4 с на сам подъём.
+    stopRec(Math.max(0, (CAM.palmSince - 400 - CAM.recStart) / 1000));
+  } else {
+    startCountdown();
+  }
+  CAM.palmSince = 0;
+}
 
 /* ---------- Ролики ---------- */
 
@@ -1893,7 +2153,8 @@ function download(name) {
 $('back').addEventListener('click', function () { $('result').pause(); show('edit'); renderEdit(); });
 
 // Для отладки из консоли: Reelista.load([file, ...]), Reelista.state
-window.Reelista = { load: function (files) { return loadFiles([].concat(files), true); }, state: S, export: X, transcripts: ensureTranscripts };
+window.Reelista = { load: function (files) { return loadFiles([].concat(files), true); }, state: S, export: X, transcripts: ensureTranscripts,
+                    cam: CAM, palm: onPalm };
 </script>
 </body>
 </html>
