@@ -306,7 +306,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.5.0';
+var APP_VERSION = '0.5.1';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -1041,7 +1041,7 @@ function ensureGesture() {
   CAM.grLoading = import(MP_BASE + '/vision_bundle.mjs').then(function (mp) {
     return mp.FilesetResolver.forVisionTasks(MP_BASE + '/wasm').then(function (fs) {
       function opts(d) {
-        return { baseOptions: { modelAssetPath: GESTURE_MODEL, delegate: d }, runningMode: 'VIDEO', numHands: 1,
+        return { baseOptions: { modelAssetPath: GESTURE_MODEL, delegate: d }, runningMode: 'VIDEO', numHands: 2,
                  minHandDetectionConfidence: 0.5, minHandPresenceConfidence: 0.5, minTrackingConfidence: 0.5 };
       }
       return mp.GestureRecognizer.createFromOptions(fs, opts('GPU')).catch(function () {
@@ -1059,20 +1059,58 @@ function ensureGesture() {
 }
 
 // ~8 проверок в секунду: жест ловится уверенно, а телефон не греется во время записи.
+// Модель обучена на ЗЕРКАЛЬНЫХ селфи-кадрах и различает руки: незеркальный кадр фронталки
+// путал её, и правая ладонь почти не ловилась (25.10: «реагирует только на левую руку»).
+// Поэтому даём ей уменьшенный кадр, для фронталки — отзеркаленный.
+var GW = 360;
+function gestureFrame(v) {
+  var c = CAM.gcv || (CAM.gcv = document.createElement('canvas')), g = c.getContext('2d');
+  var w = GW, h = Math.round(GW * v.videoHeight / v.videoWidth) || GW;
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  g.setTransform(CAM.facing === 'user' ? -1 : 1, 0, 0, 1, CAM.facing === 'user' ? w : 0, 0);
+  g.drawImage(v, 0, 0, w, h);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  return c;
+}
+
+// Своя проверка «открытой ладони» по 21 точке руки — ГЛАВНЫЙ признак. Классификатор Google
+// на чётком фото ладони (25.10) ответил «не жест» для левой руки и «ладонь 0.53» для правой,
+// а проверка по точкам — «ладонь» во всех 12 вариантах (обе руки, 256–640 px, GPU и CPU).
+// Плюс ладонь должна стоять вертикально, пальцами вверх («стоп»): иначе говорящий, жестикулируя
+// открытой рукой, случайно останавливал бы запись.
+function palmByLandmarks(p, w, h) {
+  function d(a, b) { var dx = (p[a].x - p[b].x) * w, dy = (p[a].y - p[b].y) * h; return Math.sqrt(dx * dx + dy * dy); }
+  // Пальцы: кончик дальше от запястья, чем средний сустав (с запасом).
+  var fingers = [[8, 6], [12, 10], [16, 14], [20, 18]];
+  for (var i = 0; i < fingers.length; i++) if (d(fingers[i][0], 0) < d(fingers[i][1], 0) * 1.15) return false;
+  // Большой палец отведён: кончик дальше от основания указательного, чем его сустав.
+  if (d(4, 5) <= d(3, 5) * 1.1) return false;
+  // Пальцами вверх: средний палец выше запястья, отклонение от вертикали меньше 60°
+  // (45° оказалось строго: поднятую ладонь держат с наклоном, на фото-проверке ~50°).
+  var up = (p[0].y - p[12].y) * h, side = Math.abs(p[0].x - p[12].x) * w;
+  return up > side * 0.58;
+}
+
 function gestureLoop() {
   clearTimeout(CAM.loopT);
   if (!CAM.gr || !CAM.gesture || $('scr-cam').hidden || !CAM.stream) return;
   var v = $('camv'), now = performance.now();
-  if (v.readyState >= 2 && !CAM.counting) {
-    var res = null;
-    try { res = CAM.gr.recognizeForVideo(v, now); } catch (e) {}
-    var g = res && res.gestures && res.gestures[0] && res.gestures[0][0];
-    onPalm(!!(g && g.categoryName === 'Open_Palm' && g.score > 0.6), now);
+  if (v.readyState >= 2 && v.videoWidth && !CAM.counting) {
+    var res = null, frame = gestureFrame(v);
+    try { res = CAM.gr.recognizeForVideo(frame, now); } catch (e) {}
+    var palm = false;
+    if (res) (res.landmarks || []).forEach(function (lm) {
+      if (!palm && lm && lm.length >= 21 && palmByLandmarks(lm, frame.width, frame.height)) palm = true;
+    });
+    onPalm(palm, now);
   }
   CAM.loopT = setTimeout(gestureLoop, 120);
 }
 
 function onPalm(palm, now) {
+  if (palm) CAM.palmLast = now;
+  // Мигание: если ладонь «потерялась» меньше чем на 0.3 с, удержание не сбрасываем.
+  else if (CAM.palmSince && now - (CAM.palmLast || 0) < 300) return;
   if (!palm) { CAM.palmSince = 0; setHold(0); return; }
   if (now - CAM.lastGesture < COOLDOWN_MS) return;           // после жеста рука ещё поднята — не срабатываем повторно
   if (!CAM.palmSince) CAM.palmSince = now;
