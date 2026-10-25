@@ -10,6 +10,11 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" href="favicon.png">
+<!-- Свободные шрифты для стилей AFFX: Unbounded вместо Benzin, Manrope вместо Gilroy (те — коммерческие,
+     их пользователь подгружает сам кнопкой «Свой…» и они остаются только в его браузере). -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@600&family=Unbounded:wght@800&display=swap">
 <meta name="apple-mobile-web-app-title" content="Reelista">
 <style>
 :root{
@@ -143,6 +148,21 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 .take.cutted .txt{color:var(--muted);text-decoration:line-through}
 .take small{display:block;font-size:11px;color:var(--muted);margin-top:2px}
 
+/* настройки стилей AFFX */
+.affx-opts{margin-top:6px}
+.affx-opts small{color:var(--muted);font-size:12px}
+.affx-opts input[type=color]{width:44px;height:28px;border:.5px solid var(--line2);border-radius:8px;background:none;padding:0}
+.affx-opts .link{padding:0;margin-left:10px}
+.rules{width:100%;background:var(--panel);color:var(--text);border:.5px solid var(--line2);border-radius:10px;padding:8px 10px;font:inherit;font-size:14px;resize:vertical;outline:none}
+/* разметка фраз для AFFX в редакторе текста */
+.chips{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:8px 0 0 40px}
+.chip{height:30px;padding:0 10px;border-radius:15px;border:.5px solid var(--line2);background:transparent;color:var(--text);font-size:13px;
+  -webkit-touch-callout:none;user-select:none;-webkit-user-select:none}
+.chip.acc{background:#A4FF44;border-color:#A4FF44;color:#111}
+.chip.strike{background:#4628FF;border-color:#4628FF;color:#fff;text-decoration:line-through}
+.brk{width:22px;height:30px;border:0;background:none;color:var(--muted);font-size:15px;padding:0}
+.brk.on{color:var(--accent);font-weight:600}
+
 /* съёмка */
 .cam{position:relative;flex:1;min-height:62vh;min-height:62dvh;background:#000;border:.5px solid var(--line);border-radius:18px;overflow:hidden}
 .cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
@@ -245,6 +265,19 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
     <div class="status" id="tr-status" hidden><div class="spin"></div><span id="tr-text">Распознаю речь…</span></div>
     <div class="sub-opts" id="subs-opts" hidden>
       <div class="styles" id="styles"></div>
+      <!-- Настройки стилей AFFX: цвета бренда, свои шрифты, словарь замен -->
+      <div class="affx-opts" id="affx-opts" hidden>
+        <label class="row"><span>Цвет плашки</span><input type="color" id="affx-plate"></label>
+        <label class="row" id="affx-accent-row"><span>Цвет акцента</span><input type="color" id="affx-accent"></label>
+        <div class="row"><span>Крупный шрифт · <small id="affx-heavy-name"></small></span>
+          <span><button class="link" id="affx-heavy-reset">Стандартный</button> <label class="link" for="affx-heavy-file">Свой…</label></span></div>
+        <input type="file" id="affx-heavy-file" class="vh" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2">
+        <div class="row" id="affx-body-row"><span>Мелкий шрифт · <small id="affx-body-name"></small></span>
+          <span><button class="link" id="affx-body-reset">Стандартный</button> <label class="link" for="affx-body-file">Свой…</label></span></div>
+        <input type="file" id="affx-body-file" class="vh" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2">
+        <p class="seg-label" style="margin:12px 0 6px">Замены — каждая строка: было → стало</p>
+        <textarea id="affx-rules" class="rules" rows="3" spellcheck="false"></textarea>
+      </div>
       <button class="link" id="edit-text">Править текст</button>
     </div>
 
@@ -306,7 +339,7 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <script src="audio-track.js"></script>
 <script>
-var APP_VERSION = '0.5.1';
+var APP_VERSION = '0.6.0';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -330,9 +363,12 @@ var STYLES = {
   word:    { label: 'Слово',   group: [40, 1],  fs: .13,  weight: 800, y: .62, hl: 'none', stroke: .16 },
   caps:    { label: 'Капс',    group: [16, 3],  fs: .08,  weight: 900, y: .70, hl: 'color', color: YELLOW, stroke: .24, upper: true },
   marker:  { label: 'Маркер',  group: [22, 4],  fs: .07,  weight: 800, y: .72, hl: 'plate', plate: YELLOW, plateText: '#111', stroke: .14 },
-  minimal: { label: 'Минимал', group: [42, 10], fs: .042, weight: 500, y: .88, hl: 'none', box: true }
+  minimal: { label: 'Минимал', group: [42, 10], fs: .042, weight: 500, y: .88, hl: 'none', box: true },
+  // Стили из монтажа рилсов AFFX Academy: свои фразы, время и рисовальщики (блок «Стили AFFX» ниже).
+  affxPlate: { label: 'AFFX Плашка', custom: 'plate' },
+  affxMix:   { label: 'AFFX Микс',   custom: 'mix' }
 };
-var STYLE_ORDER = ['studio', 'karaoke', 'word', 'caps', 'marker', 'minimal'];
+var STYLE_ORDER = ['studio', 'karaoke', 'word', 'caps', 'marker', 'minimal', 'affxPlate', 'affxMix'];
 
 // Всё приложение живёт на ОБЩЕЙ шкале: ролики стоят друг за другом, offset — где начинается каждый.
 var S = { clips: [], duration: 0, level: 'mid', skip: true, subsOn: false, dupsOn: true, style: 'studio',
@@ -757,11 +793,13 @@ function transcribeClip(c) {
 }
 
 // Whisper отдаёт тире и знаки отдельными «словами» — оставляем только слова с буквами или цифрами.
+// Отдельное тире приклеиваем к предыдущему слову как « —» (так пишут титры AFFX: «ПОМИЛКА —»).
 var HAS_TEXT = /[0-9A-Za-zА-Яа-яЁёІіЇїЄєҐґÀ-ɏ]/;
 function cleanWords(list) {
   var out = [];
   list.forEach(function (x) {
     var w = String(x.w || '').trim(), s = +x.s, e = +x.e;
+    if (/^[-–—]+$/.test(w) && out.length) { out[out.length - 1].w += ' —'; return; }
     if (!HAS_TEXT.test(w) || !(e >= s)) return;
     var prev = out[out.length - 1];
     if (prev && s < prev.e) s = prev.e;      // слова не должны налезать друг на друга
@@ -774,7 +812,8 @@ function cleanWords(list) {
 function syncWords() {
   var all = [];
   S.clips.forEach(function (c) {
-    c.words.forEach(function (w) { all.push({ w: w.w, c: c.id, s: c.offset + w.s, e: c.offset + w.e }); });
+    // a — акцент для «AFFX Микс» (1 — акцент, 2 — с зачёркиванием, 0 — нет), br — ручной разрыв фразы после слова.
+    c.words.forEach(function (w) { all.push({ w: w.w, c: c.id, s: c.offset + w.s, e: c.offset + w.e, a: w.a, br: w.br }); });
   });
   S.words = all;
   S.phrases = groupWords(all, 36, 8, false);
@@ -1222,13 +1261,17 @@ function keptPart(w) {
     var a = Math.max(w.s, S.keep[i][0]), b = Math.min(w.e, S.keep[i][1]);
     if (b - a > 0.08) { s = a; e = b; }
   }
-  return s === null ? null : { w: w.w, c: w.c, s: s, e: e };
+  return s === null ? null : { w: w.w, c: w.c, s: s, e: e, a: w.a, br: w.br, src: w };
 }
 
 function buildUnits() {
   if (!S.words) { S.units = []; return; }
-  var kept = S.words.map(keptPart).filter(Boolean), g = STYLES[S.style].group;
-  S.units = groupWords(kept, g[0], g[1], true);
+  var st = STYLES[S.style];
+  // Словарь замен — для всех стилей: Whisper путает бренды и англицизмы.
+  var kept = applyRules(S.words.map(keptPart).filter(Boolean));
+  if (st.custom) { S.units = affxPages(kept); return; }
+  kept.forEach(function (w) { w.w = w.w.replace(/^~/, ''); });
+  S.units = groupWords(kept, st.group[0], st.group[1], true);
 }
 
 function unitAt(t) {
@@ -1294,6 +1337,9 @@ function drawUnit(g, W, H, words, active, st, base, cy) {
 
 function drawSubs(g, W, H, t) {
   if (!S.subsOn || !S.units.length) return;
+  var cst = STYLES[S.style].custom;
+  if (cst === 'plate') return drawAffxPlate(g, W, H, t);
+  if (cst === 'mix') return drawAffxMix(g, W, H, t);
   var u = unitAt(t);
   if (!u) return;
   // Активное слово — последнее начавшееся: между словами подсветка не мигает.
@@ -1302,6 +1348,333 @@ function drawSubs(g, W, H, t) {
   var st = STYLES[S.style];
   drawUnit(g, W, H, u.words, active, st, Math.min(W, H), H * st.y);
 }
+
+/* ---------- Стили AFFX: «Плашка» и «Микс» ---------- */
+// Перенесены из монтажа рилсов AFFX Academy: K:\Reels\affx-reels\src\components\AffxCaptions.tsx
+// (плашка) и src\v2\MixCaptions.tsx (микс), спецификация — AFFX-шаблон-титров-для-плагина.md.
+// Все размеры — для кадра шириной 1080 (вертикаль 1080×1920); для другого кадра масштабируются.
+// Цвета по умолчанию — AFFX, но настраиваются: приложением пользуются и другие бренды.
+
+var AFFX = {
+  plate: store('affxPlate') || '#4628FF',
+  accent: store('affxAccent') || '#A4FF44',
+  rules: store('affxRules') !== null ? store('affxRules') : 'AFIX → AFFX\nафілайт-маркетинг → AFFILIATE-МАРКЕТИНГ',
+  heavy: { family: 'Unbounded', weight: '800' },   // вместо Benzin ExtraBold
+  body: { family: 'Manrope', weight: '600' }       // вместо Gilroy SemiBold
+};
+var LEAD = 0.04;                                    // слово и фраза появляются за 40 мс до начала
+var AFFX_SHORT = /^(і|й|в|у|з|зі|із|на|та|а|чи|що|не|від|для|до|про|при|під|над|без|як|бо|об|и|с|к|о|по|за|но|из|же|ли)$/i;
+// В инструкции «~16 букв», но по ручной нарезке эталона Reel01 лучше всего совпадает 19:
+// 24 фразы из 32 один в один (16 → 18, 20 → 23). Остальное — вкус, его правят в редакторе.
+var AFFX_LETTERS = 19;
+
+function easeOutCubic(x) { x = Math.max(0, Math.min(1, x)); return 1 - Math.pow(1 - x, 3); }
+function easeOutBack(x) { x = Math.max(0, Math.min(1, x)); var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function fontStr(f, size) { return f.weight + ' ' + size + 'px "' + f.family + '", sans-serif'; }
+function upperUk(s) { return s.toLocaleUpperCase('uk'); }
+function letterCount(s) { return s.replace(/[^\p{L}\p{N}]/gu, '').length; }
+function normKey(s) { return s.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]/gu, ''); }
+
+// Словарь замен: строки «было → стало». Сравниваем без регистра и знаков, по 1–3 словам подряд —
+// Whisper то пишет «афілайт-маркетинг» одним словом, то двумя.
+function parseRules(text) {
+  return String(text || '').split('\n').map(function (line) {
+    var m = line.split(/\s*(?:→|->|=>|=)\s*/);
+    return m.length >= 2 && m[0].trim() && m[1].trim() ? { key: normKey(m[0]), to: m.slice(1).join(' ').trim() } : null;
+  }).filter(function (r) { return r && r.key; });
+}
+function applyRules(words) {
+  var rules = parseRules(AFFX.rules);
+  if (!rules.length) return words;
+  var out = [];
+  for (var i = 0; i < words.length; i++) {
+    var hit = null;
+    for (var n = 3; n >= 1 && !hit; n--) {
+      if (i + n > words.length) continue;
+      var seg = words.slice(i, i + n);
+      if (seg.some(function (w) { return w.c !== seg[0].c; })) continue;
+      var key = seg.map(function (w) { return normKey(w.w); }).join('');
+      for (var r = 0; r < rules.length; r++) if (rules[r].key === key) { hit = { seg: seg, to: rules[r].to }; break; }
+    }
+    if (!hit) { out.push(words[i]); continue; }
+    var last = hit.seg[hit.seg.length - 1], tail = (last.w.match(/\s?[,.?!…:;—]+$/) || [''])[0];
+    out.push(Object.assign({}, hit.seg[0], { w: hit.to + tail, e: last.e, br: last.br }));
+    i += hit.seg.length - 1;
+  }
+  return out;
+}
+
+// Время на смонтированной шкале — для правила «пауза до следующей фразы больше 600 мс».
+function outTime(t) {
+  var o = 0;
+  for (var i = 0; i < S.keep.length; i++) {
+    var k = S.keep[i];
+    if (t >= k[1]) o += k[1] - k[0];
+    else { if (t > k[0]) o += t - k[0]; break; }
+  }
+  return o;
+}
+
+// Фразы «как у живого монтажёра»: 1–3 слова и не больше ~19 букв, конец после знака препинания,
+// служебное слово («на», «і», «від»…) держится вместе со СЛЕДУЮЩИМ словом и не висит в конце,
+// ручной разрыв/склейка из редактора (br) важнее правил. Сверено с фразами эталона Reel01:
+// «працювати на когось» | «і чекати підвищення» | «дає тобі стабільність».
+function isShort(w) { return AFFX_SHORT.test(normKey(w.w)); }
+function isCap(w) { return /^\p{Lu}/u.test(w.w); }
+function isLatin(w) { return /^[A-Za-z]/.test(w.w); }
+function affxGroups(words) {
+  var groups = [], cur = [];
+  function hardEnd(w, next) { return !next || next.c !== w.c || w.br === 1 || (w.br !== 0 && /[,.?!…—:;]$/.test(w.w)); }
+  function letters(list) { return letterCount(list.map(function (x) { return x.w; }).join('')); }
+  words.forEach(function (w, i) {
+    var next = words[i + 1], prev = cur[cur.length - 1];
+    if (cur.length && prev.br !== 0 && !cur.every(isShort)) {
+      // Заглавная буква — новое предложение («…маркетингу | Хочеш…»): Whisper часто теряет точку.
+      // Не рвём только внутри латинского названия («AFFX Academy»), а «Тому» после него — уже новая фраза.
+      var sentence = isCap(w) && !(isLatin(w) && isLatin(prev) && isCap(prev));
+      // служебное слово проверяем вместе со следующим: если вдвоём не влезают — начинаем фразу с него
+      var add = isShort(w) && next && !hardEnd(w, next) ? [w, next] : [w];
+      if (sentence || cur.length + add.length > 3 || letters(cur.concat(add)) > AFFX_LETTERS) { groups.push(cur); cur = []; }
+    }
+    cur.push(w);
+    if (hardEnd(w, next)) { groups.push(cur); cur = []; }
+  });
+  if (cur.length) groups.push(cur);
+  return groups;
+}
+
+function affxPages(words) {
+  var groups = affxGroups(words);
+  return groups.map(function (ws, i) {
+    var next = groups[i + 1], lastE = ws[ws.length - 1].e, end = Infinity;
+    if (next) {
+      var ns = next[0].s - LEAD;
+      end = outTime(ns) - outTime(lastE) < 0.6 ? ns : lastE + 0.3;
+    }
+    return {
+      // точку в конце убираем, запятые, «?» и «!» оставляем
+      words: ws.map(function (w) { return Object.assign({}, w, { w: w.w.replace(/\.+$|…$/, '') }); }),
+      // первая фраза видна уже на самом первом кадре — он часто становится обложкой
+      start: i === 0 ? -1e9 : Math.max(0, ws[0].s - LEAD),
+      end: end
+    };
+  });
+}
+function pageAt(t) {
+  for (var i = 0; i < S.units.length; i++) { var p = S.units[i]; if (t >= p.start && t < p.end) return p; }
+  return null;
+}
+
+// «AFFX Плашка»: заглавные, слова появляются по мере речи, плашка переезжает под текущее слово.
+function drawAffxPlate(g, W, H, t, page, geo) {
+  page = page || pageAt(t);
+  if (!page) return;
+  geo = geo || { s: W / 1080, cx: W / 2, cy: H * 1250 / 1920 };
+  var s = geo.s, boxW = 920 * s, texts = page.words.map(function (w) { return upperUk(w.w.replace(/^~/, '')); });
+  g.save();
+  // Раскладка сразу для всей фразы: не больше 2 строк по 920 px, иначе шрифт меньше шагами по 2 px.
+  var size = 82 * s, lines, space;
+  for (;;) {
+    g.font = fontStr(AFFX.heavy, size);
+    space = g.measureText(' ').width * 1.1;
+    lines = [];
+    var line = [], lw = 0;
+    texts.forEach(function (tx, i) {
+      var w = g.measureText(tx).width;
+      if (line.length && lw + space + w > boxW) { lines.push({ items: line, w: lw }); line = []; lw = 0; }
+      lw += (line.length ? space : 0) + w;
+      line.push({ text: tx, w: w, i: i });
+    });
+    lines.push({ items: line, w: lw });
+    if ((lines.length <= 2 && lines.every(function (l) { return l.w <= boxW; })) || size <= 30 * s) break;
+    size -= 2 * s;
+  }
+  // Поля плашки — от реальных границ ЗАГЛАВНЫХ (верх «Н» … базовая линия), замер тем же движком,
+  // которым рисуем: у Benzin метрики строки сильно больше букв, иначе плашка съезжает вверх.
+  var mH = g.measureText('Н'), capH = mH.actualBoundingBoxAscent || size * 0.72;
+  // Базовая линия — как у браузера в строке line-height: 1 (так стоит текст в эталоне AffxCaptions.tsx):
+  // по метрикам шрифта от верха строки; строки идут с шагом 1.32 × размер.
+  var fA = mH.fontBoundingBoxAscent || size * 0.9, fD = mH.fontBoundingBoxDescent || size * 0.25;
+  var baseInLine = (size - (fA + fD)) / 2 + fA;
+  var lh = size * 1.32, top = geo.cy - lh * lines.length / 2, boxes = [];
+  lines.forEach(function (l, li) {
+    var x = geo.cx - l.w / 2, lineTop = top + li * lh, base = lineTop + baseInLine;
+    l.items.forEach(function (it) { boxes[it.i] = { text: it.text, x: x, base: base, mid: lineTop + size / 2, w: it.w }; x += it.w + space; });
+  });
+  function appear(i) { return i === 0 ? page.start : page.words[i].s - LEAD; }
+  var shown = 1;
+  for (var i = 1; i < boxes.length; i++) if (t >= appear(i)) shown = i + 1;
+  var act = shown - 1, padX = size * 0.22, padY = size * 0.16;
+  function rectOf(b) { return [b.x - padX, b.base - capH - padY, b.x + b.w + padX, b.base + padY]; }
+  var rect = rectOf(boxes[act]), sc = 1;
+  if (act > 0) {
+    var k = easeOutCubic((t - appear(act)) / 0.1), prev = rectOf(boxes[act - 1]);
+    rect = rect.map(function (v, j) { return prev[j] + (v - prev[j]) * k; });
+  } else {
+    sc = 0.6 + 0.4 * easeOutBack((t - page.start) / 0.16);
+  }
+  var cx = (rect[0] + rect[2]) / 2, cy = (rect[1] + rect[3]) / 2, hw = (rect[2] - rect[0]) / 2 * sc, hh = (rect[3] - rect[1]) / 2 * sc;
+  X.lastPlate = [cx - hw, cy - hh, cx + hw, cy + hh];          // для проверки по эталону
+  g.fillStyle = AFFX.plate;
+  roundRect(g, cx - hw, cy - hh, hw * 2, hh * 2, Math.min(size * 0.18 * sc, hh));
+  g.fill();
+
+  g.textBaseline = 'alphabetic'; g.fillStyle = '#fff';
+  g.shadowColor = 'rgba(0,0,0,0.55)'; g.shadowBlur = 20 * s; g.shadowOffsetY = 5 * s;
+  for (i = 0; i < shown; i++) {
+    var b = boxes[i], kk = (t - appear(i)) / 0.14, op = Math.max(0, Math.min(1, kk * 2.5));
+    if (op <= 0) continue;
+    var scl = 0.55 + 0.45 * easeOutBack(kk), dy = 16 * s * (1 - easeOutCubic(kk));
+    var mx = b.x + b.w / 2, my = b.mid;                   // масштаб — от центра слова (как у блока слова в эталоне)
+    g.save();
+    g.globalAlpha = op;
+    g.translate(mx, my + dy); g.scale(scl, scl);
+    g.fillText(b.text, -b.w / 2, b.base - my);
+    g.restore();
+  }
+  g.restore();
+}
+
+// Акценты «Микса»: явные пометки из редактора (a) или разметка (~слово — зачеркнуть, СЛОВО — акцент).
+// Если во фразе ничего не отмечено — сами предлагаем один акцент: число или самое длинное слово.
+function mixFlags(words) {
+  var marks = words.map(function (w) {
+    var t = w.w.trim(), tilde = t.charAt(0) === '~', text = tilde ? t.slice(1) : t;
+    var lettersOnly = text.replace(/[^\p{L}]/gu, '');
+    var caps = lettersOnly.length >= 2 && lettersOnly === upperUk(lettersOnly);
+    var a = w.a !== undefined ? w.a : tilde ? 2 : caps ? 1 : undefined;
+    return { text: text, a: a };
+  });
+  if (!marks.some(function (m) { return m.a !== undefined; })) {
+    var best = -1, score = 0;
+    marks.forEach(function (m, i) {
+      if (AFFX_SHORT.test(normKey(m.text))) return;
+      var sc = /\d/.test(m.text) ? 100 : letterCount(m.text);
+      if (sc >= 4 && sc > score) { score = sc; best = i; }
+    });
+    if (best >= 0) marks[best].a = 1;
+  }
+  return marks.map(function (m) { return { text: m.text, accent: m.a === 1 || m.a === 2, strike: m.a === 2 }; });
+}
+
+// «AFFX Микс»: мелкие белые слова + крупный цветной акцент, при желании зачёркнутый.
+function drawAffxMix(g, W, H, t, page, geo) {
+  page = page || pageAt(t);
+  if (!page) return;
+  geo = geo || { s: W / 1080, cx: W / 2, cy: H * 1340 / 1920 };   // блок y 1190…1490
+  var s = geo.s, bw = 960 * s, gap = 20 * s, flags = mixFlags(page.words);
+  g.save();
+  g.textBaseline = 'alphabetic';
+  var items = page.words.map(function (w, i) {
+    var f = flags[i], text = f.accent ? upperUk(f.text) : f.text, font, size, L;
+    if (f.accent) {
+      g.font = fontStr(AFFX.heavy, 100 * s);
+      size = Math.min(118 * s, bw / g.measureText(text).width * 100 * s * 0.98);
+      font = AFFX.heavy; L = 1.02;
+    } else { size = 56 * s; font = AFFX.body; L = 1.1; }
+    g.font = fontStr(font, size);
+    var m = g.measureText(text), asc = m.fontBoundingBoxAscent || size * 0.8, desc = m.fontBoundingBoxDescent || size * 0.2;
+    var above = asc + (L * size - (asc + desc)) / 2;   // как строка CSS с line-height L, по базовой линии
+    return { text: text, accent: f.accent, strike: f.strike, font: font, size: size, w: m.width, above: above, below: L * size - above, i: i };
+  });
+  var lines = [], line = [], lw = 0;
+  items.forEach(function (it) {
+    if (line.length && lw + gap + it.w > bw) { lines.push({ items: line, w: lw }); line = []; lw = 0; }
+    lw += (line.length ? gap : 0) + it.w;
+    line.push(it);
+  });
+  lines.push({ items: line, w: lw });
+  var total = 0;
+  lines.forEach(function (l) {
+    l.above = Math.max.apply(null, l.items.map(function (x) { return x.above; }));
+    l.below = Math.max.apply(null, l.items.map(function (x) { return x.below; }));
+    total += l.above + l.below;
+  });
+  var y = geo.cy - total / 2;
+  X.lastMix = [];                                                // для проверки по эталону
+  lines.forEach(function (l) {
+    var x = geo.cx - l.w / 2, base = y + l.above;
+    l.items.forEach(function (it) {
+      X.lastMix.push({ text: it.text, accent: it.accent, strike: it.strike, x: x, base: base, top: base - it.above, h: it.above + it.below, w: it.w, size: it.size, font: fontStr(it.font, it.size) });
+      var w = page.words[it.i], appear = it.i === 0 ? page.start : w.s - LEAD;
+      var k = (t - appear) / (it.accent ? 0.22 : 0.16), op = Math.max(0, Math.min(1, k * (it.accent ? 3 : 2.5)));
+      if (op > 0) {                       // ещё не сказанное слово невидимо, но место под него оставлено
+        g.save();
+        g.globalAlpha = op;
+        g.font = fontStr(it.font, it.size);
+        g.shadowColor = 'rgba(0,0,0,0.55)'; g.shadowBlur = 24 * s; g.shadowOffsetY = 6 * s;
+        var top = base - it.above, hgt = it.above + it.below;
+        if (it.accent) {
+          var sc = 0.5 + 0.5 * easeOutBack(k), cx = x + it.w / 2, cy = top + hgt / 2;
+          g.translate(cx, cy); g.scale(sc, sc); g.translate(-cx, -cy);
+        } else {
+          g.translate(0, 18 * s * (1 - easeOutCubic(k)));
+        }
+        g.fillStyle = it.accent ? AFFX.accent : '#fff';
+        g.fillText(it.text, x, base);
+        if (it.strike) {                  // «было — стало»: через 300 мс после слова его перечёркивает полоса
+          var sk = easeOutCubic((t - (w.s + 0.3)) / 0.14);
+          if (sk > 0) {
+            var th = it.size * 0.13, sw = (it.w + 16 * s) * sk;
+            g.shadowColor = 'rgba(0,0,0,0.4)'; g.shadowBlur = 14 * s; g.shadowOffsetY = 4 * s;
+            g.translate(x - 8 * s, top + hgt * 0.44);
+            g.rotate(-2.5 * Math.PI / 180);
+            g.fillStyle = AFFX.plate;
+            roundRect(g, 0, 0, sw, th, Math.min(it.size * 0.07, th / 2, sw / 2));
+            g.fill();
+          }
+        }
+        g.restore();
+      }
+      x += it.w + gap;
+    });
+    y += l.above + l.below;
+  });
+  g.restore();
+}
+
+// Шрифты должны быть загружены ДО отрисовки, иначе раскладка посчитается по запасному шрифту.
+function ensureAffxFonts() {
+  if (!document.fonts || !document.fonts.load) return Promise.resolve();
+  var sample = 'ҐЄІЇНОФ абв AFFX 123';
+  return Promise.all([document.fonts.load(fontStr(AFFX.heavy, 82), sample), document.fonts.load(fontStr(AFFX.body, 56), sample)])
+    .then(function () {}, function () {});
+}
+
+// Свой шрифт бренда (Benzin, Gilroy…): файл хранится только в этом браузере (IndexedDB).
+function fontDb(mode, fn) {
+  return new Promise(function (res, rej) {
+    var r = indexedDB.open('reelista', 1);
+    r.onupgradeneeded = function () { r.result.createObjectStore('fonts'); };
+    r.onerror = function () { rej(r.error); };
+    r.onsuccess = function () {
+      var tx = r.result.transaction('fonts', mode), req = fn(tx.objectStore('fonts'));
+      tx.oncomplete = function () { res(req && req.result); };
+      tx.onerror = function () { rej(tx.error); };
+    };
+  });
+}
+function useFont(slot, buf, name) {
+  var fam = slot === 'heavy' ? 'ReelistaHeavy' : 'ReelistaBody';
+  return new FontFace(fam, buf).load().then(function (f) {
+    document.fonts.add(f);
+    AFFX[slot] = { family: fam, weight: 'normal', name: name };
+  });
+}
+function resetFont(slot) {
+  AFFX[slot] = slot === 'heavy' ? { family: 'Unbounded', weight: '800' } : { family: 'Manrope', weight: '600' };
+}
+function affxRedraw() {
+  ensureAffxFonts().then(function () { buildUnits(); renderSubsUi(); drawOverlay(); });
+}
+['heavy', 'body'].forEach(function (slot) {
+  try {
+    fontDb('readonly', function (st) { return st.get(slot); }).then(function (v) {
+      if (v && v.buf) return useFont(slot, v.buf, v.name).then(affxRedraw);
+    }).catch(function () {});
+  } catch (e) {}
+});
+ensureAffxFonts().then(function () { try { renderSubsUi(); drawOverlay(); } catch (e) {} });
 
 // Холст титров лежит ровно поверх картинки видео (с учётом чёрных полей object-fit: contain).
 function drawOverlay() {
@@ -1337,18 +1710,60 @@ function renderStyles() {
     var w = cv.clientWidth, h = cv.clientHeight, dpr = window.devicePixelRatio || 1;
     if (!w) return;
     cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-    var words = key === 'word' ? [SAMPLE[1]] : st.group[1] < 4 ? SAMPLE.slice(0, 2) : SAMPLE;
     var g = cv.getContext('2d');
+    if (st.custom) {                       // превью AFFX — тем же рисовальщиком, все слова уже сказаны
+      var ts = Math.min(cv.width / 1000, cv.height / 240), geo = { s: ts, cx: cv.width / 2, cy: cv.height / 2 };
+      var sample = st.custom === 'plate'
+        ? { start: -1e9, end: 1e9, words: [{ w: 'Від', s: 0 }, { w: 'офісу', s: 0.1 }] }
+        : { start: -1e9, end: 1e9, words: [{ w: 'не', s: 0, a: 0 }, { w: 'так,', s: 0.1, a: 0 }, { w: 'а', s: 0.2, a: 0 }, { w: 'так', s: 0.3, a: 1 }] };
+      if (st.custom === 'plate') drawAffxPlate(g, cv.width, cv.height, 99, sample, geo);
+      else drawAffxMix(g, cv.width, cv.height, 99, sample, geo);
+      return;
+    }
+    var words = key === 'word' ? [SAMPLE[1]] : st.group[1] < 4 ? SAMPLE.slice(0, 2) : SAMPLE;
     // Мелкие стили в превью крупнее, чем в кадре, — иначе на плитке не прочитать.
     drawUnit(g, cv.width, cv.height, words, key === 'word' ? 0 : 1, st, cv.width * 1.5 * Math.max(1, 0.075 / st.fs), cv.height / 2);
   });
 }
 
 function renderSubsUi() {
-  var ready = S.subsOn && S.words && S.words.length;
+  var ready = S.subsOn && S.words && S.words.length, cst = STYLES[S.style].custom;
   $('subs-opts').hidden = !ready;
+  $('affx-opts').hidden = !(ready && cst);
+  if (ready && cst) {
+    $('affx-plate').value = AFFX.plate;
+    $('affx-accent').value = AFFX.accent;
+    $('affx-accent-row').hidden = cst !== 'mix';
+    $('affx-body-row').hidden = cst !== 'mix';
+    $('affx-heavy-name').textContent = AFFX.heavy.name || 'Unbounded';
+    $('affx-body-name').textContent = AFFX.body.name || 'Manrope';
+    $('affx-heavy-reset').hidden = !AFFX.heavy.name;
+    $('affx-body-reset').hidden = !AFFX.body.name;
+    if (document.activeElement !== $('affx-rules')) $('affx-rules').value = AFFX.rules;
+  }
   if (ready) renderStyles();
 }
+
+$('affx-plate').addEventListener('input', function () { AFFX.plate = this.value; store('affxPlate', this.value); renderStyles(); drawOverlay(); });
+$('affx-accent').addEventListener('input', function () { AFFX.accent = this.value; store('affxAccent', this.value); renderStyles(); drawOverlay(); });
+$('affx-rules').addEventListener('input', function () { AFFX.rules = this.value; store('affxRules', this.value); buildUnits(); drawOverlay(); });
+['heavy', 'body'].forEach(function (slot) {
+  $('affx-' + slot + '-file').addEventListener('change', function () {
+    var f = this.files && this.files[0];
+    this.value = '';
+    if (!f) return;
+    f.arrayBuffer().then(function (buf) {
+      return useFont(slot, buf, f.name.replace(/\.[^.]+$/, '')).then(function () {
+        return fontDb('readwrite', function (st) { return st.put({ buf: buf, name: f.name.replace(/\.[^.]+$/, '') }, slot); }).catch(function () {});
+      });
+    }).then(affxRedraw, function (e) { toast('Шрифт не подошёл: ' + errText(e) + '. Нужен файл .ttf, .otf или .woff.', 10000); });
+  });
+  $('affx-' + slot + '-reset').addEventListener('click', function () {
+    resetFont(slot);
+    fontDb('readwrite', function (st) { return st.delete(slot); }).catch(function () {});
+    affxRedraw();
+  });
+});
 
 $('subs').addEventListener('change', function () {
   S.subsOn = this.checked; store('subs', S.subsOn ? '1' : '0');
@@ -1359,7 +1774,8 @@ $('styles').addEventListener('click', function (e) {
   var b = e.target.closest && e.target.closest('.style-chip');
   if (!b || b.dataset.s === S.style) return;
   S.style = b.dataset.s; store('style', S.style);
-  buildUnits(); renderStyles(); drawOverlay();
+  buildUnits(); renderSubsUi(); drawOverlay();
+  if (STYLES[S.style].custom) affxRedraw();
 });
 
 /* ---------- Титры: правка текста ---------- */
@@ -1376,10 +1792,62 @@ $('edit-text').addEventListener('click', function () {
     var ta = document.createElement('textarea');
     ta.rows = 2; ta.value = p.words.map(function (w) { return w.w; }).join(' '); ta.dataset.i = i;
     row.appendChild(tm); row.appendChild(ta); box.appendChild(row);
+    if (STYLES[S.style].custom) {
+      var chips = document.createElement('div');
+      chips.className = 'chips'; chips.dataset.i = i;
+      box.appendChild(chips);
+    }
   });
+  renderChips();
   show('text');
   window.scrollTo(0, 0);
 });
+
+// Разметка для стилей AFFX прямо по словам: тап — акцент, долгое нажатие — акцент с зачёркиванием
+// (только «Микс»), значок между словами — разорвать/склеить фразу вручную.
+function renderChips() {
+  var cst = STYLES[S.style].custom;
+  if (!cst || !S.words) return;
+  var groups = affxGroups(S.words), ends = new Set(), flag = new Map();
+  groups.forEach(function (gr) {
+    ends.add(gr[gr.length - 1]);
+    if (cst === 'mix') mixFlags(gr).forEach(function (f, k) { flag.set(gr[k], f); });
+  });
+  var lastWord = S.words[S.words.length - 1];
+  [].forEach.call($('phrases').querySelectorAll('.chips'), function (box) {
+    box.innerHTML = '';
+    S.phrases[+box.dataset.i].words.forEach(function (w) {
+      var b = document.createElement('button'), f = flag.get(w);
+      b.className = 'chip' + (f && f.strike ? ' strike' : f && f.accent ? ' acc' : '');
+      if (f && f.accent && w.a === undefined) b.style.opacity = '.6';    // акцент предложен автоматически
+      b.textContent = w.w.replace(/^~/, '');
+      if (cst === 'mix') bindChip(b, w, f);
+      box.appendChild(b);
+      if (w !== lastWord) {
+        var br = document.createElement('button');
+        br.className = 'brk' + (ends.has(w) ? ' on' : '');
+        br.textContent = ends.has(w) ? '|' : '·';
+        br.setAttribute('aria-label', ends.has(w) ? 'Склеить с следующим словом' : 'Разорвать фразу здесь');
+        br.addEventListener('click', function () { w.br = ends.has(w) ? 0 : 1; renderChips(); });
+        box.appendChild(br);
+      }
+    });
+  });
+}
+function bindChip(b, w, f) {
+  var timer = null, long = false;
+  b.addEventListener('pointerdown', function () {
+    long = false;
+    timer = setTimeout(function () { long = true; w.a = f && f.strike ? 0 : 2; renderChips(); }, 450);
+  });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { b.addEventListener(ev, function () { clearTimeout(timer); }); });
+  b.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  b.addEventListener('click', function () {
+    if (long) return;
+    w.a = f && f.accent && !f.strike ? 0 : 1;
+    renderChips();
+  });
+}
 
 $('text-done').addEventListener('click', function () {
   // Новые слова раскладываем по времени старой фразы пропорционально длине слова.
@@ -1401,7 +1869,10 @@ $('text-done').addEventListener('click', function () {
   var by = {};
   S.clips.forEach(function (c) { by[c.id] = []; });
   S.phrases.forEach(function (p) {
-    p.words.forEach(function (w) { var c = clipById(w.c); if (c) by[c.id].push({ w: w.w, s: w.s - c.offset, e: w.e - c.offset }); });
+    p.words.forEach(function (w) {
+      var c = clipById(w.c);
+      if (c) by[c.id].push({ w: w.w, s: w.s - c.offset, e: w.e - c.offset, a: w.a, br: w.br });
+    });
   });
   S.clips.forEach(function (c) { c.words = by[c.id].sort(function (x, y) { return x.s - y.s; }); });
   syncWords(); rebuildCuts();
@@ -1867,6 +2338,7 @@ async function runExportFrames(opts) {
   }
   X.stage = 'загрузка модуля сборки';
   var M = await loadMediabunny();
+  if (S.subsOn && STYLES[S.style].custom) await ensureAffxFonts();   // раскладка титров AFFX — только по настоящему шрифту
   var inputs = new Map();
   function inputOf(c) {
     if (!inputs.has(c)) inputs.set(c, new M.Input({ source: new M.BlobSource(c.file), formats: M.ALL_FORMATS }));
