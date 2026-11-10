@@ -9,7 +9,7 @@
 //   • суточный потолок на весь сервис — чтобы чужой скрипт не выжег счёт
 //     (2000 запросов × до 4 мин × $0.0005/мин ≈ $4 в самый плохой день).
 
-const ALLOWED = ['https://mnacik1988.github.io', 'http://localhost:3480'];
+const ALLOWED = ['https://mnacik1988.github.io', 'http://localhost:3480', 'capacitor://localhost'];   // capacitor:// — приложение-оболочка на iPhone
 const MAX_BYTES = 8 * 1024 * 1024;
 const DAILY_CAP = 2000;
 const MODEL = '@cf/openai/whisper-large-v3-turbo';
