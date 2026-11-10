@@ -337,15 +337,15 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <div class="toast" id="toast" hidden></div>
 
-<script src="audio-track.js?v=0.7.0"></script>
-<script src="engine/util.js?v=0.7.0"></script>
-<script src="engine/audio.js?v=0.7.0"></script>
-<script src="engine/cuts.js?v=0.7.0"></script>
-<script src="engine/words.js?v=0.7.0"></script>
-<script src="engine/render.js?v=0.7.0"></script>
-<script src="platform.js?v=0.7.0"></script>
+<script src="audio-track.js?v=0.7.1"></script>
+<script src="engine/util.js?v=0.7.1"></script>
+<script src="engine/audio.js?v=0.7.1"></script>
+<script src="engine/cuts.js?v=0.7.1"></script>
+<script src="engine/words.js?v=0.7.1"></script>
+<script src="engine/render.js?v=0.7.1"></script>
+<script src="platform.js?v=0.7.1"></script>
 <script>
-var APP_VERSION = '0.7.0';
+var APP_VERSION = '0.7.1';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -1586,7 +1586,8 @@ function runExport(src) {
 var MB = null;
 function loadMediabunny() {
   if (MB) return Promise.resolve(MB);
-  var url = './vendor/mediabunny-1.61.3.min.mjs';
+  // .js, а не .mjs: оболочка iOS отдаёт файлы с типом по расширению, а .mjs старые iOS не знают.
+  var url = './vendor/mediabunny-1.61.3.min.js';
   // Оборванную загрузку браузер запоминает до перезагрузки страницы — повторяем с другим адресом.
   return import(url).catch(function () { return import(url + '?retry=' + Date.now()); })
     .then(function (m) { MB = m; return m; });

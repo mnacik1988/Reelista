@@ -66,10 +66,10 @@ def bars_mask(size, scale, cx, cy, dy=0):
     return m
 
 
-def render(glyph_scale=1.0):
-    """Квадрат без скруглений: углы скругляют сами iOS и Android."""
-    size = S * K
-    scale = K * glyph_scale
+def render(glyph_scale=1.0, out=S):
+    """Квадрат без скруглений: углы скругляют сами iOS и Android. out — итоговый размер (1024 для App Store)."""
+    size = out * K
+    scale = K * glyph_scale * out / S
     c = size / 2
     img = vertical(size, BG_TOP, BG_BOTTOM).convert('RGBA')
     shadow = Image.new('RGBA', (size, size), SHADOW + (0,))
@@ -82,7 +82,7 @@ def render(glyph_scale=1.0):
     x, y, r = DOT
     X, Y, R = c + (x - 256) * scale, c + (y - 256) * scale, r * scale
     d.ellipse([X - R, Y - R, X + R, Y + R], fill=RED + (255,))
-    return img.convert('RGB').resize((S, S), Image.LANCZOS)
+    return img.convert('RGB').resize((out, out), Image.LANCZOS)
 
 
 if __name__ == '__main__':
