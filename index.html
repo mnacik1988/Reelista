@@ -183,19 +183,22 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 .rec-btn.on i{width:28px;height:28px;border-radius:6px}
 
 /* суфлёр: окно с текстом вверху кадра — глаза остаются рядом с фронтальной камерой; в запись не попадает */
-.pr{position:absolute;left:10px;right:10px;top:54px;height:40%;border-radius:14px;overflow:hidden;
-  background:rgba(0,0,0,.45);display:flex;flex-direction:column;border:.5px solid rgba(255,255,255,.12)}
-.pr-view{position:relative;flex:1;overflow:hidden;touch-action:none;cursor:grab;
-  -webkit-mask-image:linear-gradient(transparent,#000 10%,#000 80%,transparent);mask-image:linear-gradient(transparent,#000 10%,#000 80%,transparent)}
-.pr-text{position:absolute;left:18px;right:14px;top:0;color:#fff;white-space:pre-wrap;overflow-wrap:break-word;line-height:1.3;
-  will-change:transform;text-shadow:0 1px 4px rgba(0,0,0,.6);user-select:none;-webkit-user-select:none}
-.pr-text.empty{color:rgba(255,255,255,.55)}
-.pr-mark{position:absolute;left:4px;width:0;height:0;border:6px solid transparent;border-left:8px solid var(--accent);margin-top:-6px}
-.pr-ctl{display:flex;align-items:center;gap:4px;padding:5px 6px;background:rgba(14,14,16,.6)}
-.pr-ctl button{height:30px;min-width:30px;padding:0 8px;border-radius:15px;border:0;background:transparent;color:#fff;font-size:14px}
+/* Без рамки: затемнение градиентом от верха кадра (сила — «Затемнение», по умолчанию 80%) до нуля к середине,
+   сам слой касаний не ловит — ловят только текст и панель управления внизу кадра. */
+.cam-top{z-index:1}
+.pr{position:absolute;inset:0;pointer-events:none}
+.pr-shade{position:absolute;left:0;right:0;top:0;height:50%}
+.pr-view{position:absolute;left:0;right:0;top:54px;height:40%;overflow:hidden;touch-action:none;cursor:grab;pointer-events:auto;
+  -webkit-mask-image:linear-gradient(transparent,#000 9%,#000 78%,transparent);mask-image:linear-gradient(transparent,#000 9%,#000 78%,transparent)}
+.pr-text{position:absolute;left:28px;right:20px;top:0;color:#fff;white-space:pre-wrap;overflow-wrap:break-word;line-height:1.3;
+  will-change:transform;text-shadow:0 1px 6px rgba(0,0,0,.65);user-select:none;-webkit-user-select:none}
+.pr-text.empty{color:rgba(255,255,255,.6)}
+.pr-mark{position:absolute;left:10px;width:0;height:0;border:6px solid transparent;border-left:8px solid var(--accent);margin-top:-6px}
+.pr-ctl{position:absolute;left:10px;right:10px;bottom:64px;display:flex;align-items:center;justify-content:space-between;pointer-events:auto}
+.pr-ctl > span{display:flex;align-items:center;gap:2px;height:40px;padding:0 4px;border-radius:20px;background:rgba(14,14,16,.55)}
+.pr-ctl button{height:36px;min-width:36px;padding:0 8px;border-radius:18px;border:0;background:transparent;color:#fff;font-size:15px}
 .pr-ctl button.on{color:var(--accent)}
-.pr-ctl .sp{font-size:12px;color:var(--muted);min-width:42px;text-align:center;font-variant-numeric:tabular-nums}
-.pr-ctl .gap{flex:1}
+.pr-ctl .sp{font-size:12px;color:#fff;opacity:.7;min-width:34px;text-align:center;font-variant-numeric:tabular-nums}
 .pr-sheet{position:absolute;left:0;right:0;bottom:0;max-height:86%;overflow:auto;background:var(--panel);border-top:.5px solid var(--line2);
   border-radius:18px 18px 0 0;padding:10px 14px 14px;z-index:2}
 .pr-sheet.top{top:0;bottom:auto;border-radius:0 0 18px 18px;border-top:0;border-bottom:.5px solid var(--line2)}
@@ -247,16 +250,20 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
       </div>
       <!-- Суфлёр: виден только на экране, в запись не попадает (пишется сама камера) -->
       <div class="pr" id="pr" hidden>
+        <div class="pr-shade" id="pr-shade"></div>
         <div class="pr-view" id="pr-view"><div class="pr-text" id="pr-text"></div><i class="pr-mark" id="pr-mark"></i></div>
         <div class="pr-ctl">
-          <button id="pr-home" aria-label="В начало">⏮</button>
-          <button id="pr-play" aria-label="Прокрутка">▶</button>
-          <button id="pr-slow" aria-label="Медленнее">−</button>
-          <span class="sp" id="pr-speed"></span>
-          <button id="pr-fast" aria-label="Быстрее">+</button>
-          <span class="gap"></span>
-          <button id="pr-opts" aria-label="Настройки суфлёра">Aa</button>
-          <button id="pr-edit" aria-label="Текст суфлёра">✎</button>
+          <span>
+            <button id="pr-home" aria-label="В начало">⏮</button>
+            <button id="pr-play" aria-label="Прокрутка">▶</button>
+            <button id="pr-slow" aria-label="Медленнее">−</button>
+            <b class="sp" id="pr-speed"></b>
+            <button id="pr-fast" aria-label="Быстрее">+</button>
+          </span>
+          <span>
+            <button id="pr-opts" aria-label="Настройки суфлёра">Aa</button>
+            <button id="pr-edit" aria-label="Текст суфлёра">✎</button>
+          </span>
         </div>
       </div>
       <div class="cam-count" id="cam-count" hidden></div>
@@ -269,8 +276,8 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
         <div class="text-head"><span>Суфлёр</span><button class="btn primary" id="pr-opts-done">Готово</button></div>
         <label class="row pr-rng"><span>Скорость</span><input type="range" id="pr-r-speed" min="1" max="20" step="1"><b id="pr-v-speed"></b></label>
         <label class="row pr-rng"><span>Размер текста</span><input type="range" id="pr-r-size" min="18" max="60" step="1"><b id="pr-v-size"></b></label>
-        <label class="row pr-rng"><span>Высота окна</span><input type="range" id="pr-r-height" min="25" max="75" step="5"><b id="pr-v-height"></b></label>
-        <label class="row pr-rng"><span>Затемнение</span><input type="range" id="pr-r-dim" min="0" max="85" step="5"><b id="pr-v-dim"></b></label>
+        <label class="row pr-rng"><span>Высота текста</span><input type="range" id="pr-r-height" min="25" max="75" step="5"><b id="pr-v-height"></b></label>
+        <label class="row pr-rng"><span>Затемнение</span><input type="range" id="pr-r-dim" min="0" max="90" step="5"><b id="pr-v-dim"></b></label>
         <div class="pr-fonts" id="pr-fonts"></div>
         <label class="row"><span>Прокрутка начинается вместе с записью</span><input type="checkbox" class="sw" id="pr-auto"></label>
         <label class="row" style="border-bottom:0"><span>Каждый дубль — с начала текста</span><input type="checkbox" class="sw" id="pr-restart"></label>
@@ -393,15 +400,15 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <div class="toast" id="toast" hidden></div>
 
-<script src="audio-track.js?v=0.8.0"></script>
-<script src="engine/util.js?v=0.8.0"></script>
-<script src="engine/audio.js?v=0.8.0"></script>
-<script src="engine/cuts.js?v=0.8.0"></script>
-<script src="engine/words.js?v=0.8.0"></script>
-<script src="engine/render.js?v=0.8.0"></script>
-<script src="platform.js?v=0.8.0"></script>
+<script src="audio-track.js?v=0.8.1"></script>
+<script src="engine/util.js?v=0.8.1"></script>
+<script src="engine/audio.js?v=0.8.1"></script>
+<script src="engine/cuts.js?v=0.8.1"></script>
+<script src="engine/words.js?v=0.8.1"></script>
+<script src="engine/render.js?v=0.8.1"></script>
+<script src="platform.js?v=0.8.1"></script>
 <script>
-var APP_VERSION = '0.8.0';
+var APP_VERSION = '0.8.1';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -813,7 +820,7 @@ function numStore(k, d, lo, hi) { var v = parseFloat(store(k)); return isFinite(
 var PR = {
   on: store('pr') === '1', text: store('pr-text') || '',
   speed: numStore('pr-speed', 6, 1, 20), size: numStore('pr-size', 30, 18, 60),
-  height: numStore('pr-h', 40, 25, 75), dim: numStore('pr-dim', 45, 0, 85),
+  height: numStore('pr-h', 40, 25, 75), dim: numStore('pr-shade', 80, 0, 90),
   font: store('pr-font') || 'manrope', auto: store('pr-auto') !== '0', restart: store('pr-restart') === '1',
   pos: 0, playing: false, raf: 0, last: 0, drag: null
 };
@@ -831,8 +838,12 @@ function prRender() {
 function prApply() {
   var box = $('pr'), t = $('pr-text'), f = prFont();
   box.hidden = !PR.on;
-  box.style.height = PR.height + '%';
-  box.style.background = 'rgba(0,0,0,' + (PR.dim / 100) + ')';
+  $('pr-view').style.height = PR.height + '%';
+  // Мягкий спад (ease-out): тёмный верх кадра → прозрачная середина.
+  var a = PR.dim / 100, st = [[0, 1], [12, .82], [24, .58], [36, .32], [46, .1], [50, 0]];
+  $('pr-shade').style.background = 'linear-gradient(to bottom,' + st.map(function (s) {
+    return 'rgba(0,0,0,' + (a * s[1]).toFixed(3) + ') ' + (s[0] * 2) + '%';
+  }).join(',') + ')';
   t.style.fontFamily = f.css; t.style.fontWeight = f.w; t.style.fontSize = PR.size + 'px';
   t.classList.toggle('empty', !PR.text.trim());
   t.textContent = PR.text.trim() ? PR.text : 'Нажмите ✎ и вставьте текст, который будете читать.';
@@ -865,7 +876,7 @@ function prTick(now) {
 }
 function prSet(k, v) {
   PR[k] = v;
-  store({ speed: 'pr-speed', size: 'pr-size', height: 'pr-h', dim: 'pr-dim', font: 'pr-font' }[k], String(v));
+  store({ speed: 'pr-speed', size: 'pr-size', height: 'pr-h', dim: 'pr-shade', font: 'pr-font' }[k], String(v));
   // Размер шрифта меняет высоту строк — держим на строке чтения то же место текста.
   var max0 = prMax(), frac = max0 ? PR.pos / max0 : 0;
   prApply();
