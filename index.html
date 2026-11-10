@@ -337,9 +337,15 @@ h1{font-weight:300;font-size:24px;margin:22px 0 6px;letter-spacing:.01em}
 
 <div class="toast" id="toast" hidden></div>
 
-<script src="audio-track.js"></script>
+<script src="audio-track.js?v=0.7.0"></script>
+<script src="engine/util.js?v=0.7.0"></script>
+<script src="engine/audio.js?v=0.7.0"></script>
+<script src="engine/cuts.js?v=0.7.0"></script>
+<script src="engine/words.js?v=0.7.0"></script>
+<script src="engine/render.js?v=0.7.0"></script>
+<script src="platform.js?v=0.7.0"></script>
 <script>
-var APP_VERSION = '0.6.0';
+var APP_VERSION = '0.7.0';
 // Имя бренда — ТОЛЬКО здесь: если придётся переименоваться, меняется одна строка.
 var BRAND = 'Reelista';
 
@@ -379,17 +385,6 @@ var clipSeq = 0;
 function $(id) { return document.getElementById(id); }
 function show(name) {
   ['start', 'cam', 'busy', 'edit', 'clips', 'dups', 'text', 'export', 'done'].forEach(function (n) { $('scr-' + n).hidden = n !== name; });
-}
-function fmt(t) {
-  t = Math.max(0, t || 0);
-  var m = Math.floor(t / 60), s = Math.floor(t % 60);
-  return m + ':' + (s < 10 ? '0' : '') + s;
-}
-function plural(n, one, few, many) {
-  var a = n % 10, b = n % 100;
-  if (a === 1 && b !== 11) return one;
-  if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return few;
-  return many;
 }
 function store(k, v) {
   try {
@@ -478,236 +473,7 @@ function loadFiles(files, replace) {
   });
 }
 
-function errText(e) {
-  if (!e) return 'неизвестная ошибка';
-  return ((e.name && e.name !== 'Error' ? e.name : '') + (e.message ? (e.name && e.name !== 'Error' ? ': ' : '') + e.message : '')) || String(e);
-}
-
-function decodeWith(ctx, buf) {
-  return new Promise(function (res, rej) {
-    // Старый Safari понимает только колбэки, новый — промис; поддерживаем оба.
-    var p = ctx.decodeAudioData(buf, res, function (e) { rej(e || new Error('decode')); });
-    if (p && p.then) p.then(res, rej);
-  });
-}
-
-// Раньше на КАЖДЫЙ файл создавался свой AudioContext, а iOS держит их одновременно лишь несколько —
-// на нескольких дублях разбор звука падал. Теперь один общий «тихий» OfflineAudioContext:
-// он не занимает звук телефона и живёт всё время.
-var DEC = null;
-function decoderCtx() {
-  if (!DEC) {
-    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    try { DEC = new OAC(1, 1, 44100); } catch (e) { DEC = null; }
-  }
-  return DEC;
-}
-function decodeSmall(buf) {
-  var ctx = decoderCtx();
-  // decodeAudioData «забирает» буфер даже при неудаче, поэтому на первую попытку отдаём копию.
-  return (ctx ? decodeWith(ctx, buf.slice(0)) : Promise.reject(new Error('no offline context'))).catch(function () {
-    var AC = window.AudioContext || window.webkitAudioContext, ac = new AC();
-    function close() { try { ac.close(); } catch (x) {} }
-    return decodeWith(ac, buf).then(function (a) { close(); return a; }, function (e) { close(); throw e; });
-  });
-}
-
-// Отрезаем «разгон» кодировщика AAC, который плеер не показывает, — иначе паузы и слова съедут на ~45 мс.
-function trimStart(ab, sec) {
-  var n = Math.round(sec * ab.sampleRate);
-  if (!(n > 0) || n >= ab.length || sec > 1) return ab;
-  var ctx = decoderCtx() || new (window.AudioContext || window.webkitAudioContext)();
-  var out = ctx.createBuffer(ab.numberOfChannels, ab.length - n, ab.sampleRate);
-  for (var c = 0; c < ab.numberOfChannels; c++) out.getChannelData(c).set(ab.getChannelData(c).subarray(n));
-  return out;
-}
-
-// Главный путь: из MP4/MOV достаём только звуковую дорожку (audio-track.js) — 1–2 МБ на минуту
-// вместо всего файла. Минута 4K с iPhone весит 300–400 МБ, и целиком Safari её не переваривал.
-function readAudio(f) {
-  var extract = window.ReelistaAudio ? ReelistaAudio.extract(f) : Promise.reject(new Error('нет модуля звука'));
-  return extract.then(function (r) {
-    return decodeSmall(r.adts).then(function (ab) { return trimStart(ab, r.priming); });
-  }).catch(function (first) {
-    if (first && first.noAudio) throw first;           // звука нет совсем — читать целиком бессмысленно
-    console.warn('звуковая дорожка не досталась, читаю файл целиком', first);
-    return readWhole(f).catch(function (e) {
-      throw new Error(errText(first) + ' / ' + errText(e));
-    });
-  });
-}
-
-// Запасной путь — весь файл целиком (не MP4/MOV, звук не AAC, «нарезанный» MP4 из MediaRecorder).
-function readWhole(f) {
-  return f.arrayBuffer().then(function (buf) {
-    var ctx = decoderCtx();
-    if (!ctx) throw new Error('no offline context');
-    return decodeWith(ctx, buf);
-  }).catch(function (first) {
-    // Запасной путь — обычный AudioContext. Файл читаем заново: декодер «забирает» буфер себе.
-    console.warn('offline decode failed', first);
-    var AC = window.AudioContext || window.webkitAudioContext, ctx = new AC();
-    function close() { try { ctx.close(); } catch (x) {} }
-    return f.arrayBuffer().then(function (buf) { return decodeWith(ctx, buf); })
-      .then(function (a) { close(); return a; }, function (e) { close(); throw e; });
-  });
-}
-
-// Громкость каждые 10 мс; порог «тишина/речь» у КАЖДОГО ролика свой — дубли могли сниматься в разном шуме.
-function analyseClip(c, ab) {
-  var sr = ab.sampleRate, win = Math.round(sr * HOP), n = Math.floor(ab.length / win);
-  var ch = [], nc = ab.numberOfChannels, i, j, k;
-  for (k = 0; k < nc; k++) ch.push(ab.getChannelData(k));
-  var db = new Float32Array(n);
-  for (i = 0; i < n; i++) {
-    var sum = 0, o = i * win;
-    for (j = 0; j < win; j++) {
-      var x = 0;
-      for (k = 0; k < nc; k++) x += ch[k][o + j];
-      x /= nc; sum += x * x;
-    }
-    db[i] = 10 * Math.log10(sum / win + 1e-12);
-  }
-  var sorted = Float32Array.from(db).sort();
-  var floor = sorted[Math.floor(n * 0.10)] || -120, peak = sorted[Math.floor(n * 0.95)] || -120;
-  var thr = floor + (peak - floor) * 0.30, range = peak - floor + 1e-6;
-  c.dur = ab.duration;
-  c.flat = !n || peak - floor < 6;   // ровный звук: речь от паузы не отличить
-  c.lvl = new Float32Array(n);
-  c.sp = new Uint8Array(n);
-  for (i = 0; i < n; i++) {
-    c.lvl[i] = Math.max(0, Math.min(1, (db[i] - floor) / range));
-    c.sp[i] = db[i] >= thr ? 1 : 0;
-  }
-  for (i = 0; i < n;) {
-    if (c.sp[i]) { var s = i; while (i < n && c.sp[i]) i++; if (i - s < MIN_SPEECH) for (j = s; j < i; j++) c.sp[j] = 0; }
-    else i++;
-  }
-}
-
-function layoutClips() {
-  var t = 0;
-  S.clips.forEach(function (c) { c.offset = t; t += c.dur; });
-  S.duration = t;
-}
-function clipAt(T) {
-  var c = S.clips[0];
-  for (var i = 1; i < S.clips.length; i++) if (S.clips[i].offset <= T) c = S.clips[i];
-  return c;
-}
-function clipById(id) { for (var i = 0; i < S.clips.length; i++) if (S.clips[i].id === id) return S.clips[i]; return null; }
-
 /* ---------- Что вырезать ---------- */
-
-function pauseCutsFor(c) {
-  var cuts = pauseCutsLocal(c);
-  // Дубль, остановленный жестом: хвост с поднятой рукой отрезаем всегда (trimEnd — секунда от начала файла).
-  if (c.trimEnd > 0.2 && c.trimEnd < c.dur - 0.05) cuts.push([c.trimEnd, c.dur]);
-  return cuts.map(function (x) { return [x[0] + c.offset, x[1] + c.offset]; });
-}
-
-function pauseCutsLocal(c) {
-  var L = LEVELS[S.level], sp = c.sp, n = sp.length, cuts = [], k, s;
-  if (c.flat) return cuts;
-  var first = -1, last = -1;
-  for (k = 0; k < n; k++) if (sp[k]) { if (first < 0) first = k; last = k; }
-  if (first < 0) return cuts;
-  var minF = Math.round(L.minPause / HOP);
-  // Начало и конец каждого дубля (тянулись к кнопке, молчали в конце) режем при любой длине.
-  var headEnd = first * HOP - L.pad;
-  if (headEnd > 0.05) cuts.push([0, headEnd]);
-  for (k = first; k <= last;) {
-    if (!sp[k]) {
-      s = k; while (k <= last && !sp[k]) k++;
-      if (k - s >= minF) {
-        var a = s * HOP + L.pad, b = k * HOP - L.pad;
-        if (b - a > 0.05) cuts.push([a, b]);
-      }
-    } else k++;
-  }
-  var tail = (last + 1) * HOP + L.pad;
-  if (c.dur - tail > 0.05) cuts.push([tail, c.dur]);
-  return cuts;
-}
-
-function rebuild() {
-  S.pauseCuts = [].concat.apply([], S.clips.map(pauseCutsFor));
-  rebuildCuts();
-}
-
-// Границы дубля от Whisper неточны: конец слова он ставит раньше, чем стихает звук (замер:
-// «длинное…» по Whisper до 2.82 с, по звуку до 3.35 с — оставался огрызок слога). Поэтому
-// вырез дубля дотягиваем ПО ЗВУКУ: вперёд — до начала следующей речи, назад — до конца
-// предыдущей (если дубль начинается в тишине). Минус запас у слов, как у обычных пауз.
-// Тянем вперёд, только если за дублем в пределах 0.8 с есть настоящая тишина (≥ 0.15 с):
-// если человек оборвал фразу и сразу, без паузы, начал заново — режем по границе Whisper,
-// иначе звуковой поиск прошёл бы сквозь хороший дубль.
-function dupCut(t) {
-  var c = clipAt(t.s), sp = c.sp, n = sp.length, pad = LEVELS[S.level].pad;
-  var ks = Math.max(0, Math.min(n - 1, Math.floor((t.s - c.offset) / HOP)));
-  var ke = Math.max(0, Math.min(n - 1, Math.floor((t.e - c.offset) / HOP)));
-  var next = -1;
-  for (var j = ke; j < Math.min(n, ke + 80); j++) {
-    if (sp[j]) continue;
-    var q = j; while (q < n && !sp[q]) q++;
-    if (q - j >= 15 || q >= n) { next = q; break; }
-    j = q;
-  }
-  var end = next < 0 ? t.e - c.offset + 0.03 : next >= n ? c.dur : Math.max(t.e - c.offset, next * HOP - pad);
-  var start = t.s - c.offset, k;
-  if (!sp[ks]) {
-    k = ks;
-    while (k > 0 && !sp[k]) k--;
-    start = k <= 0 ? 0 : Math.min(start, (k + 1) * HOP + pad);
-  }
-  return [c.offset + start, c.offset + end];
-}
-
-function rebuildCuts() {
-  var cuts = S.pauseCuts.slice();
-  if (S.dupsOn) S.groups.forEach(function (g) {
-    if (g.ignored) return;
-    g.takes.forEach(function (t, i) { if (i !== g.keep) cuts.push(dupCut(t)); });
-  });
-  cuts.sort(function (a, b) { return a[0] - b[0]; });
-  var merged = [];
-  cuts.forEach(function (c) {
-    var a = Math.max(0, c[0]), b = Math.min(S.duration, c[1]);
-    if (b <= a) return;
-    var last = merged[merged.length - 1];
-    if (last && a <= last[1]) last[1] = Math.max(last[1], b); else merged.push([a, b]);
-  });
-  S.cuts = merged;
-
-  // Оставшееся — дополнение к вырезам, разрезанное по границам роликов (кусок не может жить в двух файлах).
-  var keep = [], t = 0;
-  merged.forEach(function (c) { if (c[0] - t > 0.01) keep.push([t, c[0]]); t = c[1]; });
-  if (S.duration - t > 0.01) keep.push([t, S.duration]);
-  if (!keep.length) keep = [[0, S.duration]];
-  var split = [];
-  keep.forEach(function (k) {
-    var a = k[0];
-    S.clips.forEach(function (c) { if (c.offset > a + 0.01 && c.offset < k[1] - 0.01) { split.push([a, c.offset]); a = c.offset; } });
-    split.push([a, k[1]]);
-  });
-  S.keep = split.filter(function (k) { return k[1] - k[0] > 0.05; });
-  S.segs = S.keep.map(function (k) {
-    var c = clipAt((k[0] + k[1]) / 2);
-    return { clip: c, a: k[0] - c.offset, b: k[1] - c.offset };
-  });
-  buildUnits();
-}
-
-function keptLength() { return S.keep.reduce(function (s, k) { return s + k[1] - k[0]; }, 0); }
-function inCut(t) { for (var i = 0; i < S.cuts.length; i++) if (t >= S.cuts[i][0] && t < S.cuts[i][1]) return true; return false; }
-function nextKeepStart(t) {
-  for (var i = 0; i < S.keep.length; i++) if (S.keep[i][1] > t + 0.01) return Math.max(t, S.keep[i][0]);
-  return null;
-}
-function cutBetween(a, b) {
-  for (var i = 0; i < S.cuts.length; i++) if (S.cuts[i][0] < b && S.cuts[i][1] > a) return true;
-  return false;
-}
 
 function afterClipsChange() {
   layoutClips();
@@ -716,31 +482,6 @@ function afterClipsChange() {
 }
 
 /* ---------- Распознавание речи ---------- */
-
-// Моно 16 кГц: усредняем исходные отсчёты в каждом новом интервале (заодно срезает высокие частоты).
-function to16k(ab) {
-  var sr = ab.sampleRate, ratio = sr / 16000, n = Math.floor(ab.length / ratio);
-  var ch = [], nc = ab.numberOfChannels, c;
-  for (c = 0; c < nc; c++) ch.push(ab.getChannelData(c));
-  var out = new Int16Array(n);
-  for (var i = 0; i < n; i++) {
-    var a = Math.floor(i * ratio), b = Math.max(a + 1, Math.floor((i + 1) * ratio)), sum = 0;
-    for (var j = a; j < b; j++) for (c = 0; c < nc; c++) sum += ch[c][j] || 0;
-    out[i] = Math.max(-32768, Math.min(32767, Math.round(sum / ((b - a) * nc) * 32767)));
-  }
-  return out;
-}
-
-function makeWav(pcm) {
-  var buf = new ArrayBuffer(44 + pcm.length * 2), d = new DataView(buf);
-  function str(o, s) { for (var i = 0; i < s.length; i++) d.setUint8(o + i, s.charCodeAt(i)); }
-  str(0, 'RIFF'); d.setUint32(4, 36 + pcm.length * 2, true); str(8, 'WAVE');
-  str(12, 'fmt '); d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true);
-  d.setUint32(24, 16000, true); d.setUint32(28, 32000, true); d.setUint16(32, 2, true); d.setUint16(34, 16, true);
-  str(36, 'data'); d.setUint32(40, pcm.length * 2, true);
-  new Int16Array(buf, 44).set(pcm);
-  return buf;
-}
 
 var TR_ERRORS = {
   rate_limited: 'Слишком много запросов. Подождите минуту и включите снова.',
@@ -792,22 +533,6 @@ function transcribeClip(c) {
     });
 }
 
-// Whisper отдаёт тире и знаки отдельными «словами» — оставляем только слова с буквами или цифрами.
-// Отдельное тире приклеиваем к предыдущему слову как « —» (так пишут титры AFFX: «ПОМИЛКА —»).
-var HAS_TEXT = /[0-9A-Za-zА-Яа-яЁёІіЇїЄєҐґÀ-ɏ]/;
-function cleanWords(list) {
-  var out = [];
-  list.forEach(function (x) {
-    var w = String(x.w || '').trim(), s = +x.s, e = +x.e;
-    if (/^[-–—]+$/.test(w) && out.length) { out[out.length - 1].w += ' —'; return; }
-    if (!HAS_TEXT.test(w) || !(e >= s)) return;
-    var prev = out[out.length - 1];
-    if (prev && s < prev.e) s = prev.e;      // слова не должны налезать друг на друга
-    out.push({ w: w, s: s, e: Math.max(e, s + 0.05) });
-  });
-  return out;
-}
-
 // Слова роликов (время внутри файла) → слова на общей шкале.
 function syncWords() {
   var all = [];
@@ -821,68 +546,6 @@ function syncWords() {
 }
 
 /* ---------- Дубли ---------- */
-
-var CAPITAL = /^[A-ZА-ЯЁІЇЄҐ]/;
-function stem(w) {
-  // Сравниваем по началу слова: «ошибка», «ошибки», «ошибку» — одно и то же.
-  return w.toLowerCase().replace(/ё/g, 'е').replace(/[^0-9a-zа-яіїєґà-ɏ]/g, '').slice(0, 5);
-}
-
-function sentencesOf(words) {
-  var out = [], cur = null;
-  words.forEach(function (w) {
-    var prev = cur && cur.words[cur.words.length - 1];
-    if (!cur || w.c !== prev.c || w.s - prev.e > 0.6 || /[.!?…]$/.test(prev.w) ||
-        (CAPITAL.test(w.w) && cur.words.length >= 2)) { cur = { words: [] }; out.push(cur); }
-    cur.words.push(w);
-  });
-  out.forEach(function (s) {
-    s.s = s.words[0].s; s.e = s.words[s.words.length - 1].e;
-    s.toks = s.words.map(function (w) { return stem(w.w); }).filter(Boolean);
-    s.text = s.words.map(function (w) { return w.w; }).join(' ');
-  });
-  return out;
-}
-
-function lcs(a, b) {
-  var prev = new Array(b.length + 1).fill(0);
-  for (var i = 0; i < a.length; i++) {
-    var cur = [0];
-    for (var j = 0; j < b.length; j++) cur[j + 1] = a[i] === b[j] ? prev[j] + 1 : Math.max(prev[j + 1], cur[j]);
-    prev = cur;
-  }
-  return prev[b.length];
-}
-
-// Две фразы — дубли, если короткая почти целиком (по порядку) входит в длинную.
-// «Первая ошибка…» + «Первая ошибка — длинное вступление» = дубль-обрыв и полный дубль.
-function computeGroups() {
-  var sents = sentencesOf(S.words), n = sents.length, parent = sents.map(function (_, i) { return i; });
-  function find(x) { while (parent[x] !== x) x = parent[x] = parent[parent[x]]; return x; }
-  for (var i = 0; i < n; i++) {
-    for (var j = i + 1; j < n && j <= i + 12; j++) {
-      var a = sents[i].toks, b = sents[j].toks;
-      if (a.length < 2 || b.length < 2) continue;
-      var l = lcs(a, b);
-      if (l >= 2 && l / Math.min(a.length, b.length) >= 0.6 && l / Math.max(a.length, b.length) >= 0.35) parent[find(j)] = find(i);
-    }
-  }
-  var map = {};
-  sents.forEach(function (s, i) { var r = find(i); (map[r] = map[r] || []).push(s); });
-  S.groups = Object.keys(map).map(function (k) { return map[k]; }).filter(function (t) { return t.length > 1; })
-    .map(function (takes) {
-      // Оставляем ПОСЛЕДНИЙ полный дубль: обычно его и записывали «начисто».
-      var max = Math.max.apply(null, takes.map(function (t) { return t.toks.length; })), keep = 0;
-      takes.forEach(function (t, i) { if (t.toks.length >= 0.7 * max) keep = i; });
-      return { takes: takes, keep: keep, ignored: false };
-    })
-    .sort(function (x, y) { return x.takes[0].s - y.takes[0].s; });
-}
-
-function cutTakes() {
-  if (!S.dupsOn) return 0;
-  return S.groups.reduce(function (n, g) { return n + (g.ignored ? 0 : g.takes.length - 1); }, 0);
-}
 
 function renderDups() {
   var box = $('dups-list');
@@ -1208,147 +871,6 @@ $('clips-done').addEventListener('click', function () { show('edit'); setPreview
 
 /* ---------- Титры: группировка и отрисовка ---------- */
 
-var SHORT = /^[a-zа-яёіїєґ]{1,2}$/;   // «в», «и», «на», «не» — не оставляем висеть в конце строки
-function chars(ws) { return ws.reduce(function (s, w) { return s + w.w.length + 1; }, -1); }
-
-// Режем речь на куски для показа. Сначала на предложения (пауза, знак конца, заглавная буква,
-// вырез монтажа, другой ролик), потом длинное — на РАВНЫЕ части, а не «сколько влезло + огрызок».
-function groupWords(words, maxChars, maxWords, splitCuts) {
-  var sentences = [], cur = null;
-  words.forEach(function (w) {
-    var prev = cur && cur[cur.length - 1];
-    var brk = !cur || w.c !== prev.c || w.s - prev.e > 0.45 || /[.!?…]$/.test(prev.w) ||
-              (CAPITAL.test(w.w) && cur.length >= 2) || (splitCuts && cutBetween(prev.e, w.s));
-    if (brk) { cur = []; sentences.push(cur); }
-    cur.push(w);
-  });
-
-  var out = [];
-  sentences.forEach(function (sent) {
-    var n = Math.max(Math.ceil(chars(sent) / maxChars), Math.ceil(sent.length / maxWords));
-    var parts = [], target = chars(sent) / n, part = [];
-    sent.forEach(function (w, i) {
-      var left = sent.length - i;
-      if (part.length && parts.length < n - 1 &&
-          (chars(part.concat(w)) > target * 1.15 || part.length >= maxWords) && left >= n - 1 - parts.length) {
-        parts.push(part); part = [];
-      }
-      part.push(w);
-    });
-    parts.push(part);
-    for (var i = 0; i < parts.length - 1; i++) {
-      var last = parts[i][parts[i].length - 1];
-      if (parts[i].length > 1 && SHORT.test(last.w)) parts[i + 1].unshift(parts[i].pop());
-    }
-    parts.forEach(function (p) { if (p.length) out.push({ words: p }); });
-  });
-
-  out.forEach(function (u, i) {
-    u.s = u.words[0].s;
-    var next = out[i + 1];
-    // Фраза висит чуть дольше последнего слова, но не дольше начала следующей.
-    u.end = Math.min(u.words[u.words.length - 1].e + 0.35, next ? next.words[0].s : Infinity);
-  });
-  return out;
-}
-
-// Whisper любит растягивать первое слово после паузы на всю паузу (замер: «Зритель» 10.06–11.92 с).
-// Поэтому слово живёт, пока заметная его часть звучит в ролике, а время обрезаем до этой части.
-// Если кусков несколько — берём последний: растянуто начало слова, а не конец.
-function keptPart(w) {
-  var s = null, e = null;
-  for (var i = 0; i < S.keep.length; i++) {
-    var a = Math.max(w.s, S.keep[i][0]), b = Math.min(w.e, S.keep[i][1]);
-    if (b - a > 0.08) { s = a; e = b; }
-  }
-  return s === null ? null : { w: w.w, c: w.c, s: s, e: e, a: w.a, br: w.br, src: w };
-}
-
-function buildUnits() {
-  if (!S.words) { S.units = []; return; }
-  var st = STYLES[S.style];
-  // Словарь замен — для всех стилей: Whisper путает бренды и англицизмы.
-  var kept = applyRules(S.words.map(keptPart).filter(Boolean));
-  if (st.custom) { S.units = affxPages(kept); return; }
-  kept.forEach(function (w) { w.w = w.w.replace(/^~/, ''); });
-  S.units = groupWords(kept, st.group[0], st.group[1], true);
-}
-
-function unitAt(t) {
-  for (var i = 0; i < S.units.length; i++) {
-    var u = S.units[i];
-    if (t >= u.s && t < u.end) return u;
-    if (u.s > t) break;
-  }
-  return null;
-}
-
-function roundRect(g, x, y, w, h, r) {
-  g.beginPath();
-  g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
-  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
-}
-
-// Один рисовальщик для превью стилей, просмотра и сборки — что видно на экране, то и в ролике.
-function drawUnit(g, W, H, words, active, st, base, cy) {
-  var fs = Math.round(base * st.fs), plate = st.hl === 'plate';
-  g.save();
-  g.font = st.weight + ' ' + fs + 'px -apple-system, "SF Pro Display", "Segoe UI", Roboto, sans-serif';
-  g.textBaseline = 'middle'; g.lineJoin = 'round';
-  // У плашки нужен воздух, иначе она налезает на соседние слова.
-  var space = g.measureText(' ').width + (plate ? fs * 0.3 : 0), maxW = W * 0.86, lineH = fs * (plate ? 1.4 : 1.25);
-
-  var lines = [[]], lw = [0];
-  words.forEach(function (w, i) {
-    var text = st.upper ? w.w.toUpperCase() : w.w, ww = g.measureText(text).width, L = lines.length - 1;
-    if (lines[L].length && lw[L] + space + ww > maxW) { lines.push([]); lw.push(0); L++; }
-    lw[L] += (lines[L].length ? space : 0) + ww;
-    lines[L].push({ text: text, width: ww, i: i });
-  });
-  var y0 = cy - (lines.length - 1) * lineH / 2;
-
-  if (st.box) {
-    var bw = Math.max.apply(null, lw) + fs * 1.0, bh = lines.length * lineH + fs * 0.45;
-    g.fillStyle = 'rgba(14,14,16,0.72)';
-    roundRect(g, (W - bw) / 2, y0 - lineH / 2 - fs * 0.22, bw, bh, fs * 0.35);
-    g.fill();
-  }
-  lines.forEach(function (line, L) {
-    var x = (W - lw[L]) / 2, y = y0 + L * lineH;
-    line.forEach(function (it) {
-      var on = it.i === active && st.hl !== 'none';
-      if (plate && on) {
-        var p = fs * 0.14;
-        g.fillStyle = st.plate;
-        roundRect(g, x - p, y - fs * 0.62, it.width + p * 2, fs * 1.24, fs * 0.2);
-        g.fill();
-      } else if (st.stroke) {
-        g.lineWidth = fs * st.stroke;
-        g.strokeStyle = 'rgba(0,0,0,0.6)';
-        g.strokeText(it.text, x, y);
-      }
-      g.fillStyle = plate && on ? (st.plateText || '#fff') : (st.hl === 'color' && on ? st.color : (st.box ? '#E8E8EA' : '#fff'));
-      g.fillText(it.text, x, y);
-      x += it.width + space;
-    });
-  });
-  g.restore();
-}
-
-function drawSubs(g, W, H, t) {
-  if (!S.subsOn || !S.units.length) return;
-  var cst = STYLES[S.style].custom;
-  if (cst === 'plate') return drawAffxPlate(g, W, H, t);
-  if (cst === 'mix') return drawAffxMix(g, W, H, t);
-  var u = unitAt(t);
-  if (!u) return;
-  // Активное слово — последнее начавшееся: между словами подсветка не мигает.
-  var active = -1;
-  u.words.forEach(function (w, i) { if (t >= w.s) active = i; });
-  var st = STYLES[S.style];
-  drawUnit(g, W, H, u.words, active, st, Math.min(W, H), H * st.y);
-}
-
 /* ---------- Стили AFFX: «Плашка» и «Микс» ---------- */
 // Перенесены из монтажа рилсов AFFX (там они сделаны на Remotion) и сверены с эталонными кадрами.
 // Все размеры — для кадра шириной 1080 (вертикаль 1080×1920); для другого кадра масштабируются.
@@ -1361,276 +883,6 @@ var AFFX = {
   heavy: { family: 'Unbounded', weight: '800' },   // вместо Benzin ExtraBold
   body: { family: 'Manrope', weight: '600' }       // вместо Gilroy SemiBold
 };
-var LEAD = 0.04;                                    // слово и фраза появляются за 40 мс до начала
-var AFFX_SHORT = /^(і|й|в|у|з|зі|із|на|та|а|чи|що|не|від|для|до|про|при|під|над|без|як|бо|об|и|с|к|о|по|за|но|из|же|ли)$/i;
-// В спецификации «~16 букв», но по ручной нарезке эталонного ролика лучше всего совпадает 19:
-// 24 фразы из 32 один в один (16 → 18, 20 → 23). Остальное — вкус, его правят в редакторе.
-var AFFX_LETTERS = 19;
-
-function easeOutCubic(x) { x = Math.max(0, Math.min(1, x)); return 1 - Math.pow(1 - x, 3); }
-function easeOutBack(x) { x = Math.max(0, Math.min(1, x)); var c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
-function fontStr(f, size) { return f.weight + ' ' + size + 'px "' + f.family + '", sans-serif'; }
-function upperUk(s) { return s.toLocaleUpperCase('uk'); }
-function letterCount(s) { return s.replace(/[^\p{L}\p{N}]/gu, '').length; }
-function normKey(s) { return s.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]/gu, ''); }
-
-// Словарь замен: строки «было → стало». Сравниваем без регистра и знаков, по 1–3 словам подряд —
-// Whisper то пишет «афілайт-маркетинг» одним словом, то двумя.
-function parseRules(text) {
-  return String(text || '').split('\n').map(function (line) {
-    var m = line.split(/\s*(?:→|->|=>|=)\s*/);
-    return m.length >= 2 && m[0].trim() && m[1].trim() ? { key: normKey(m[0]), to: m.slice(1).join(' ').trim() } : null;
-  }).filter(function (r) { return r && r.key; });
-}
-function applyRules(words) {
-  var rules = parseRules(AFFX.rules);
-  if (!rules.length) return words;
-  var out = [];
-  for (var i = 0; i < words.length; i++) {
-    var hit = null;
-    for (var n = 3; n >= 1 && !hit; n--) {
-      if (i + n > words.length) continue;
-      var seg = words.slice(i, i + n);
-      if (seg.some(function (w) { return w.c !== seg[0].c; })) continue;
-      var key = seg.map(function (w) { return normKey(w.w); }).join('');
-      for (var r = 0; r < rules.length; r++) if (rules[r].key === key) { hit = { seg: seg, to: rules[r].to }; break; }
-    }
-    if (!hit) { out.push(words[i]); continue; }
-    var last = hit.seg[hit.seg.length - 1], tail = (last.w.match(/\s?[,.?!…:;—]+$/) || [''])[0];
-    out.push(Object.assign({}, hit.seg[0], { w: hit.to + tail, e: last.e, br: last.br }));
-    i += hit.seg.length - 1;
-  }
-  return out;
-}
-
-// Время на смонтированной шкале — для правила «пауза до следующей фразы больше 600 мс».
-function outTime(t) {
-  var o = 0;
-  for (var i = 0; i < S.keep.length; i++) {
-    var k = S.keep[i];
-    if (t >= k[1]) o += k[1] - k[0];
-    else { if (t > k[0]) o += t - k[0]; break; }
-  }
-  return o;
-}
-
-// Фразы «как у живого монтажёра»: 1–3 слова и не больше ~19 букв, конец после знака препинания,
-// служебное слово («на», «і», «від»…) держится вместе со СЛЕДУЮЩИМ словом и не висит в конце,
-// ручной разрыв/склейка из редактора (br) важнее правил. Сверено с фразами эталонного ролика:
-// «працювати на когось» | «і чекати підвищення» | «дає тобі стабільність».
-function isShort(w) { return AFFX_SHORT.test(normKey(w.w)); }
-function isCap(w) { return /^\p{Lu}/u.test(w.w); }
-function isLatin(w) { return /^[A-Za-z]/.test(w.w); }
-function affxGroups(words) {
-  var groups = [], cur = [];
-  function hardEnd(w, next) { return !next || next.c !== w.c || w.br === 1 || (w.br !== 0 && /[,.?!…—:;]$/.test(w.w)); }
-  function letters(list) { return letterCount(list.map(function (x) { return x.w; }).join('')); }
-  words.forEach(function (w, i) {
-    var next = words[i + 1], prev = cur[cur.length - 1];
-    if (cur.length && prev.br !== 0 && !cur.every(isShort)) {
-      // Заглавная буква — новое предложение («…маркетингу | Хочеш…»): Whisper часто теряет точку.
-      // Не рвём только внутри латинского названия («AFFX Academy»), а «Тому» после него — уже новая фраза.
-      var sentence = isCap(w) && !(isLatin(w) && isLatin(prev) && isCap(prev));
-      // служебное слово проверяем вместе со следующим: если вдвоём не влезают — начинаем фразу с него
-      var add = isShort(w) && next && !hardEnd(w, next) ? [w, next] : [w];
-      if (sentence || cur.length + add.length > 3 || letters(cur.concat(add)) > AFFX_LETTERS) { groups.push(cur); cur = []; }
-    }
-    cur.push(w);
-    if (hardEnd(w, next)) { groups.push(cur); cur = []; }
-  });
-  if (cur.length) groups.push(cur);
-  return groups;
-}
-
-function affxPages(words) {
-  var groups = affxGroups(words);
-  return groups.map(function (ws, i) {
-    var next = groups[i + 1], lastE = ws[ws.length - 1].e, end = Infinity;
-    if (next) {
-      var ns = next[0].s - LEAD;
-      end = outTime(ns) - outTime(lastE) < 0.6 ? ns : lastE + 0.3;
-    }
-    return {
-      // точку в конце убираем, запятые, «?» и «!» оставляем
-      words: ws.map(function (w) { return Object.assign({}, w, { w: w.w.replace(/\.+$|…$/, '') }); }),
-      // первая фраза видна уже на самом первом кадре — он часто становится обложкой
-      start: i === 0 ? -1e9 : Math.max(0, ws[0].s - LEAD),
-      end: end
-    };
-  });
-}
-function pageAt(t) {
-  for (var i = 0; i < S.units.length; i++) { var p = S.units[i]; if (t >= p.start && t < p.end) return p; }
-  return null;
-}
-
-// «AFFX Плашка»: заглавные, слова появляются по мере речи, плашка переезжает под текущее слово.
-function drawAffxPlate(g, W, H, t, page, geo) {
-  page = page || pageAt(t);
-  if (!page) return;
-  geo = geo || { s: W / 1080, cx: W / 2, cy: H * 1250 / 1920 };
-  var s = geo.s, boxW = 920 * s, texts = page.words.map(function (w) { return upperUk(w.w.replace(/^~/, '')); });
-  g.save();
-  // Раскладка сразу для всей фразы: не больше 2 строк по 920 px, иначе шрифт меньше шагами по 2 px.
-  var size = 82 * s, lines, space;
-  for (;;) {
-    g.font = fontStr(AFFX.heavy, size);
-    space = g.measureText(' ').width * 1.1;
-    lines = [];
-    var line = [], lw = 0;
-    texts.forEach(function (tx, i) {
-      var w = g.measureText(tx).width;
-      if (line.length && lw + space + w > boxW) { lines.push({ items: line, w: lw }); line = []; lw = 0; }
-      lw += (line.length ? space : 0) + w;
-      line.push({ text: tx, w: w, i: i });
-    });
-    lines.push({ items: line, w: lw });
-    if ((lines.length <= 2 && lines.every(function (l) { return l.w <= boxW; })) || size <= 30 * s) break;
-    size -= 2 * s;
-  }
-  // Поля плашки — от реальных границ ЗАГЛАВНЫХ (верх «Н» … базовая линия), замер тем же движком,
-  // которым рисуем: у Benzin метрики строки сильно больше букв, иначе плашка съезжает вверх.
-  var mH = g.measureText('Н'), capH = mH.actualBoundingBoxAscent || size * 0.72;
-  // Базовая линия — как у браузера в строке line-height: 1 (так стоит текст в эталоне AffxCaptions.tsx):
-  // по метрикам шрифта от верха строки; строки идут с шагом 1.32 × размер.
-  var fA = mH.fontBoundingBoxAscent || size * 0.9, fD = mH.fontBoundingBoxDescent || size * 0.25;
-  var baseInLine = (size - (fA + fD)) / 2 + fA;
-  var lh = size * 1.32, top = geo.cy - lh * lines.length / 2, boxes = [];
-  lines.forEach(function (l, li) {
-    var x = geo.cx - l.w / 2, lineTop = top + li * lh, base = lineTop + baseInLine;
-    l.items.forEach(function (it) { boxes[it.i] = { text: it.text, x: x, base: base, mid: lineTop + size / 2, w: it.w }; x += it.w + space; });
-  });
-  function appear(i) { return i === 0 ? page.start : page.words[i].s - LEAD; }
-  var shown = 1;
-  for (var i = 1; i < boxes.length; i++) if (t >= appear(i)) shown = i + 1;
-  var act = shown - 1, padX = size * 0.22, padY = size * 0.16;
-  function rectOf(b) { return [b.x - padX, b.base - capH - padY, b.x + b.w + padX, b.base + padY]; }
-  var rect = rectOf(boxes[act]), sc = 1;
-  if (act > 0) {
-    var k = easeOutCubic((t - appear(act)) / 0.1), prev = rectOf(boxes[act - 1]);
-    rect = rect.map(function (v, j) { return prev[j] + (v - prev[j]) * k; });
-  } else {
-    sc = 0.6 + 0.4 * easeOutBack((t - page.start) / 0.16);
-  }
-  var cx = (rect[0] + rect[2]) / 2, cy = (rect[1] + rect[3]) / 2, hw = (rect[2] - rect[0]) / 2 * sc, hh = (rect[3] - rect[1]) / 2 * sc;
-  X.lastPlate = [cx - hw, cy - hh, cx + hw, cy + hh];          // для проверки по эталону
-  g.fillStyle = AFFX.plate;
-  roundRect(g, cx - hw, cy - hh, hw * 2, hh * 2, Math.min(size * 0.18 * sc, hh));
-  g.fill();
-
-  g.textBaseline = 'alphabetic'; g.fillStyle = '#fff';
-  g.shadowColor = 'rgba(0,0,0,0.55)'; g.shadowBlur = 20 * s; g.shadowOffsetY = 5 * s;
-  for (i = 0; i < shown; i++) {
-    var b = boxes[i], kk = (t - appear(i)) / 0.14, op = Math.max(0, Math.min(1, kk * 2.5));
-    if (op <= 0) continue;
-    var scl = 0.55 + 0.45 * easeOutBack(kk), dy = 16 * s * (1 - easeOutCubic(kk));
-    var mx = b.x + b.w / 2, my = b.mid;                   // масштаб — от центра слова (как у блока слова в эталоне)
-    g.save();
-    g.globalAlpha = op;
-    g.translate(mx, my + dy); g.scale(scl, scl);
-    g.fillText(b.text, -b.w / 2, b.base - my);
-    g.restore();
-  }
-  g.restore();
-}
-
-// Акценты «Микса»: явные пометки из редактора (a) или разметка (~слово — зачеркнуть, СЛОВО — акцент).
-// Если во фразе ничего не отмечено — сами предлагаем один акцент: число или самое длинное слово.
-function mixFlags(words) {
-  var marks = words.map(function (w) {
-    var t = w.w.trim(), tilde = t.charAt(0) === '~', text = tilde ? t.slice(1) : t;
-    var lettersOnly = text.replace(/[^\p{L}]/gu, '');
-    var caps = lettersOnly.length >= 2 && lettersOnly === upperUk(lettersOnly);
-    var a = w.a !== undefined ? w.a : tilde ? 2 : caps ? 1 : undefined;
-    return { text: text, a: a };
-  });
-  if (!marks.some(function (m) { return m.a !== undefined; })) {
-    var best = -1, score = 0;
-    marks.forEach(function (m, i) {
-      if (AFFX_SHORT.test(normKey(m.text))) return;
-      var sc = /\d/.test(m.text) ? 100 : letterCount(m.text);
-      if (sc >= 4 && sc > score) { score = sc; best = i; }
-    });
-    if (best >= 0) marks[best].a = 1;
-  }
-  return marks.map(function (m) { return { text: m.text, accent: m.a === 1 || m.a === 2, strike: m.a === 2 }; });
-}
-
-// «AFFX Микс»: мелкие белые слова + крупный цветной акцент, при желании зачёркнутый.
-function drawAffxMix(g, W, H, t, page, geo) {
-  page = page || pageAt(t);
-  if (!page) return;
-  geo = geo || { s: W / 1080, cx: W / 2, cy: H * 1340 / 1920 };   // блок y 1190…1490
-  var s = geo.s, bw = 960 * s, gap = 20 * s, flags = mixFlags(page.words);
-  g.save();
-  g.textBaseline = 'alphabetic';
-  var items = page.words.map(function (w, i) {
-    var f = flags[i], text = f.accent ? upperUk(f.text) : f.text, font, size, L;
-    if (f.accent) {
-      g.font = fontStr(AFFX.heavy, 100 * s);
-      size = Math.min(118 * s, bw / g.measureText(text).width * 100 * s * 0.98);
-      font = AFFX.heavy; L = 1.02;
-    } else { size = 56 * s; font = AFFX.body; L = 1.1; }
-    g.font = fontStr(font, size);
-    var m = g.measureText(text), asc = m.fontBoundingBoxAscent || size * 0.8, desc = m.fontBoundingBoxDescent || size * 0.2;
-    var above = asc + (L * size - (asc + desc)) / 2;   // как строка CSS с line-height L, по базовой линии
-    return { text: text, accent: f.accent, strike: f.strike, font: font, size: size, w: m.width, above: above, below: L * size - above, i: i };
-  });
-  var lines = [], line = [], lw = 0;
-  items.forEach(function (it) {
-    if (line.length && lw + gap + it.w > bw) { lines.push({ items: line, w: lw }); line = []; lw = 0; }
-    lw += (line.length ? gap : 0) + it.w;
-    line.push(it);
-  });
-  lines.push({ items: line, w: lw });
-  var total = 0;
-  lines.forEach(function (l) {
-    l.above = Math.max.apply(null, l.items.map(function (x) { return x.above; }));
-    l.below = Math.max.apply(null, l.items.map(function (x) { return x.below; }));
-    total += l.above + l.below;
-  });
-  var y = geo.cy - total / 2;
-  X.lastMix = [];                                                // для проверки по эталону
-  lines.forEach(function (l) {
-    var x = geo.cx - l.w / 2, base = y + l.above;
-    l.items.forEach(function (it) {
-      X.lastMix.push({ text: it.text, accent: it.accent, strike: it.strike, x: x, base: base, top: base - it.above, h: it.above + it.below, w: it.w, size: it.size, font: fontStr(it.font, it.size) });
-      var w = page.words[it.i], appear = it.i === 0 ? page.start : w.s - LEAD;
-      var k = (t - appear) / (it.accent ? 0.22 : 0.16), op = Math.max(0, Math.min(1, k * (it.accent ? 3 : 2.5)));
-      if (op > 0) {                       // ещё не сказанное слово невидимо, но место под него оставлено
-        g.save();
-        g.globalAlpha = op;
-        g.font = fontStr(it.font, it.size);
-        g.shadowColor = 'rgba(0,0,0,0.55)'; g.shadowBlur = 24 * s; g.shadowOffsetY = 6 * s;
-        var top = base - it.above, hgt = it.above + it.below;
-        if (it.accent) {
-          var sc = 0.5 + 0.5 * easeOutBack(k), cx = x + it.w / 2, cy = top + hgt / 2;
-          g.translate(cx, cy); g.scale(sc, sc); g.translate(-cx, -cy);
-        } else {
-          g.translate(0, 18 * s * (1 - easeOutCubic(k)));
-        }
-        g.fillStyle = it.accent ? AFFX.accent : '#fff';
-        g.fillText(it.text, x, base);
-        if (it.strike) {                  // «было — стало»: через 300 мс после слова его перечёркивает полоса
-          var sk = easeOutCubic((t - (w.s + 0.3)) / 0.14);
-          if (sk > 0) {
-            var th = it.size * 0.13, sw = (it.w + 16 * s) * sk;
-            g.shadowColor = 'rgba(0,0,0,0.4)'; g.shadowBlur = 14 * s; g.shadowOffsetY = 4 * s;
-            g.translate(x - 8 * s, top + hgt * 0.44);
-            g.rotate(-2.5 * Math.PI / 180);
-            g.fillStyle = AFFX.plate;
-            roundRect(g, 0, 0, sw, th, Math.min(it.size * 0.07, th / 2, sw / 2));
-            g.fill();
-          }
-        }
-        g.restore();
-      }
-      x += it.w + gap;
-    });
-    y += l.above + l.below;
-  });
-  g.restore();
-}
 
 // Шрифты должны быть загружены ДО отрисовки, иначе раскладка посчитается по запасному шрифту.
 function ensureAffxFonts() {
@@ -2147,16 +1399,11 @@ function startExport() {
   $('xnote').textContent = 'Готовлю сборку…';
   // Ждём конца «пуск-стоп» разблокировки: иначе её запоздалый стоп останавливал плеер,
   // из которого берутся кадры («видео перестало играть», найдено 20.10).
-  ready.then(function () { return runExportFrames(); }).catch(function (e) {
-    if (e && e.message === 'cancel') throw e;
-    if (e && e.decoderFailed) {
-      console.warn('декодер упал посреди сборки, перехожу на плеер', e);
-      toast('Декодер Safari не справился с этим видео (' + errText(e) + ') — собираю через плеер: дольше, но надёжно.', 10000);
-      setProgress(0);
-      return runExportFrames({ player: true });
-    }
-    throw e;
-  }).catch(function (e) {
+  X.outPath = null;
+  // Нативная оболочка умеет резать сама (AVFoundation / Media3) — тогда сборка в два прохода.
+  // X.force.webCut — тот же путь в браузере (нарезка нашей сборкой), чтобы проверять его до нативной части.
+  var twoPassOn = (Platform.cutVideo && S.segs.every(function (sg) { return sg.clip.path; })) || (X.force && X.force.webCut);
+  ready.then(function () { return twoPassOn ? runTwoPass() : framesSafe({}); }).catch(function (e) {
     if (!(e && e.noEncoder)) throw e;
     toast('В этой версии iOS нет кодировщика видео — собираю старым способом, ролик может выйти рваным. Обновите iOS.', 15000);
     X.how = 'обычная (нет VideoEncoder)';
@@ -2174,6 +1421,47 @@ function startExport() {
     toast(e && e.message === 'stalled'
       ? 'Сборка остановилась — похоже, приложение свернули. Попробуйте ещё раз.'
       : 'Не получилось собрать видео (этап: ' + X.stage + '): ' + errText(e), 20000);
+  });
+}
+
+// Покадровая сборка; если аппаратный декодер упал посреди работы — заново через плеер.
+function framesSafe(opts) {
+  return runExportFrames(opts).catch(function (e) {
+    if (!(e && e.decoderFailed) || opts.player) throw e;
+    console.warn('декодер упал посреди сборки, перехожу на плеер', e);
+    toast('Декодер Safari не справился с этим видео (' + errText(e) + ') — собираю через плеер: дольше, но надёжно.', 10000);
+    setProgress(opts.span ? opts.span[0] : 0);
+    return runExportFrames(Object.assign({}, opts, { player: true }));
+  });
+}
+
+// Сборка в два прохода (для нативной оболочки):
+//   1) нарезка — нужные куски исходников одним файлом без титров. В оболочке это делает телефон
+//      (AVFoundation / Media3: полное качество, HEVC читается всегда); в браузере для проверки — наша сборка;
+//   2) титры — покадрово поверх нарезки; их время переводим обратно на шкалу исходников (srcTime).
+// Без титров второй проход не нужен: нарезка и есть готовый ролик (в оболочке сохраняется по своему пути).
+function runTwoPass() {
+  var native = !!Platform.cutVideo && S.segs.every(function (sg) { return sg.clip.path; });
+  var subs = S.subsOn && S.units.length > 0, len = keptLength();
+  X.stage = 'нарезка';
+  var cut = native
+    ? Platform.cutVideo(S.segs.map(function (sg) { return { path: sg.clip.path, start: sg.a, end: sg.b }; }))
+    : framesSafe({ noSubs: true, stage: 'нарезка', span: subs ? [0, 0.45] : [0, 1] }).then(function (b) {
+        return { file: new File([b], 'cut.mp4', { type: 'video/mp4' }), path: null };
+      });
+  return cut.then(function (r) {
+    var tag = native ? 'нарезка: телефон' : 'нарезка: веб';
+    if (!subs) {
+      X.outPath = r.path;
+      if (native) { X.vframes = 0; X.how = tag; } else X.how = tag + ' · ' + X.how;
+      return r.file;
+    }
+    if (X.cancel) throw new Error('cancel');
+    setProgress(0.45);
+    var clip = { id: 'cut', name: 'нарезка', file: r.file, url: URL.createObjectURL(r.file), offset: 0 };
+    return framesSafe({ segs: [{ clip: clip, a: 0, b: len }], subsTime: srcTime, stage: 'титры', span: [0.45, 1] })
+      .then(function (b) { X.how = tag + ' + титры · ' + X.how; return b; })
+      .finally(function () { if ($('xvideo')._clip === clip) $('xvideo')._clip = null; URL.revokeObjectURL(clip.url); });
   });
 }
 
@@ -2328,8 +1616,14 @@ function clipAudio(c, rate) {
 //   звук:     сжатие заново (AudioEncoder) → если его нет (появился в Safari недавно),
 //             копируем готовые кусочки AAC из файла (склейка с точностью ~21 мс).
 // Обязателен только кодировщик картинки (VideoEncoder, Safari 16.4+).
+// opts.segs     — какие куски склеивать (по умолчанию S.segs; во втором проходе — один кусок «нарезки»);
+// opts.subsTime — время титров по времени ИТОГОВОГО ролика (во втором проходе = srcTime);
+// opts.noSubs   — собрать без титров (первый проход, проверка «нарезки» в браузере);
+// opts.span     — какую часть полосы прогресса занимает этот проход, [от, до].
 async function runExportFrames(opts) {
   opts = opts || {};
+  var segs = opts.segs || S.segs, span = opts.span || [0, 1];
+  function progress(p) { setProgress(span[0] + p * (span[1] - span[0])); }
   if (typeof VideoEncoder === 'undefined') {
     var noEnc = unsupported('в этой версии Safari нет VideoEncoder — обновите iOS');
     noEnc.noEncoder = true;
@@ -2337,7 +1631,7 @@ async function runExportFrames(opts) {
   }
   X.stage = 'загрузка модуля сборки';
   var M = await loadMediabunny();
-  if (S.subsOn && STYLES[S.style].custom) await ensureAffxFonts();   // раскладка титров AFFX — только по настоящему шрифту
+  if (!opts.noSubs && S.subsOn && STYLES[S.style].custom) await ensureAffxFonts();   // раскладка титров AFFX — только по настоящему шрифту
   var inputs = new Map();
   function inputOf(c) {
     if (!inputs.has(c)) inputs.set(c, new M.Input({ source: new M.BlobSource(c.file), formats: M.ALL_FORMATS }));
@@ -2350,7 +1644,8 @@ async function runExportFrames(opts) {
   try {
     // Проверяем ДО начала, что и как телефон умеет.
     X.stage = 'проверка роликов';
-    var used = S.clips.filter(function (c) { return S.segs.some(function (s) { return s.clip === c; }); });
+    var used = [];
+    segs.forEach(function (s) { if (used.indexOf(s.clip) < 0) used.push(s.clip); });
     var vtracks = new Map(), atracks = new Map(), viaDecoder = typeof VideoDecoder !== 'undefined';
     for (var c of used) {
       var vt = await inputOf(c).getPrimaryVideoTrack(), at = await inputOf(c).getPrimaryAudioTrack();
@@ -2371,7 +1666,7 @@ async function runExportFrames(opts) {
     if (opts.player || (X.force && X.force.player)) viaDecoder = false;
     if (!viaDecoder && !('requestVideoFrameCallback' in HTMLVideoElement.prototype)) throw unsupported('телефон не умеет читать кадры видео');
 
-    var first = vtracks.get(S.segs[0].clip), W, H, enc = null;
+    var first = vtracks.get(segs[0].clip), W, H, enc = null;
     for (var side of [1920, 1280]) {
       var k = Math.min(1, side / Math.max(first.displayWidth, first.displayHeight));
       W = Math.round(first.displayWidth * k / 2) * 2; H = Math.round(first.displayHeight * k / 2) * 2;
@@ -2424,23 +1719,23 @@ async function runExportFrames(opts) {
     output.addAudioTrack(asrc);
     await output.start();
 
-    var total = keptLength(), outT = 0, frames = 0;
+    var total = segs.reduce(function (a, s) { return a + (s.b - s.a); }, 0), outT = 0, frames = 0;
     try {
-      for (var i = 0; i < S.segs.length; i++) {
-        var sg = S.segs[i], base = outT;
-        X.stage = 'кадры (кусок ' + (i + 1) + ' из ' + S.segs.length + ')';
+      for (var i = 0; i < segs.length; i++) {
+        var sg = segs[i], base = outT;
+        X.stage = (opts.stage || 'кадры') + (segs.length > 1 ? ' (кусок ' + (i + 1) + ' из ' + segs.length + ')' : '');
         var addFrame = function (t, dur, draw) {   // t — время кадра в исходном ролике
           var st = Math.max(t, sg.a);
           g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
           draw();
-          drawSubs(g, W, H, sg.clip.offset + st);
+          if (!opts.noSubs) drawSubs(g, W, H, opts.subsTime ? opts.subsTime(base + st - sg.a) : sg.clip.offset + st);
           if (eg) {                                  // поворот на −90°: плеер вернёт его по пометке в файле
             eg.setTransform(0, -1, 1, 0, 0, W);
             eg.drawImage(cv, 0, 0);
             eg.setTransform(1, 0, 0, 1, 0, 0);
           }
           frames++;
-          setProgress(0.9 * (base + Math.min(sg.b, st + dur) - sg.a) / total);
+          progress(0.9 * (base + Math.min(sg.b, st + dur) - sg.a) / total);
           return vsrc.add(base + (st - sg.a), Math.max(0.001, Math.min(dur, sg.b - st)));
         };
         if (viaDecoder) {
@@ -2469,9 +1764,9 @@ async function runExportFrames(opts) {
       }
 
       X.stage = 'звук';
-      if (audioEncode) await asrc.add(await mixAudio(used, total, RATE, CH));
-      else await copyAudio(M, asrc, atracks, audioCfg);
-      setProgress(0.97);
+      if (audioEncode) await asrc.add(await mixAudio(segs, used, total, RATE, CH));
+      else await copyAudio(M, asrc, atracks, audioCfg, segs);
+      progress(0.97);
 
       X.stage = 'запись файла';
       await output.finalize();
@@ -2510,19 +1805,19 @@ async function pickEncoder(M, w, h) {
 }
 
 // Звук для сжатия: склеиваем нужные куски в один буфер, на стыках — мягкие 10 мс, чтобы не щёлкало.
-async function mixAudio(used, total, RATE, CH) {
+async function mixAudio(segs, used, total, RATE, CH) {
   var audio = new Map();
   for (var c of used) audio.set(c, await clipAudio(c, RATE));
   var actx = decoderCtx() || new (window.AudioContext || window.webkitAudioContext)();
   var len = Math.round(total * RATE), buf = actx.createBuffer(CH, len, RATE), fade = Math.round(0.01 * RATE), pos = 0;
-  S.segs.forEach(function (sg, si) {
+  segs.forEach(function (sg, si) {
     var src = audio.get(sg.clip), from = Math.round(sg.a * RATE), n = Math.min(Math.round((sg.b - sg.a) * RATE), len - pos);
     for (var ch = 0; ch < CH; ch++) {
       var d = src[Math.min(ch, src.length - 1)], out = buf.getChannelData(ch);
       for (var j = 0; j < n; j++) {
         var gain = 1;
         if (si > 0 && j < fade) gain = j / fade;
-        if (si < S.segs.length - 1 && n - j <= fade) gain = Math.min(gain, (n - j) / fade);
+        if (si < segs.length - 1 && n - j <= fade) gain = Math.min(gain, (n - j) / fade);
         out[pos + j] = (d[from + j] || 0) * gain;
       }
     }
@@ -2533,10 +1828,10 @@ async function mixAudio(used, total, RATE, CH) {
 
 // Звук без сжатия: перекладываем готовые кусочки AAC (по ~21 мс) нужных отрезков подряд.
 // Кусочек берём, если его середина внутри отрезка, — так ошибка на стыке не больше половины кусочка.
-async function copyAudio(M, asrc, atracks, cfg) {
+async function copyAudio(M, asrc, atracks, cfg, segs) {
   var outT = 0, firstPacket = true, lastEnd = 0;
-  for (var i = 0; i < S.segs.length; i++) {
-    var sg = S.segs[i], sink = new M.EncodedPacketSink(atracks.get(sg.clip));
+  for (var i = 0; i < segs.length; i++) {
+    var sg = segs[i], sink = new M.EncodedPacketSink(atracks.get(sg.clip));
     var start = (await sink.getPacket(sg.a)) || (await sink.getFirstPacket());
     if (start) {
       for await (var p of sink.packets(start)) {
@@ -2629,6 +1924,8 @@ function finishExport(blob) {
   releaseLock();
   $('xstage').classList.remove('frames');
   S.out = blob;
+  S.outPath = X.outPath || null;      // файл уже лежит на телефоне (нативная нарезка) — сохраняем его напрямую
+  X.outPath = null;
   if (S.outUrl) URL.revokeObjectURL(S.outUrl);
   S.outUrl = URL.createObjectURL(blob);
   $('result').src = S.outUrl;
@@ -2648,17 +1945,11 @@ function outName() {
 
 $('save').addEventListener('click', function () {
   if (!S.out) return;
-  var name = outName(), file = new File([S.out], name, { type: S.out.type });
-  // На iPhone «Поделиться» → «Сохранить видео» кладёт ролик прямо в «Фото».
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    navigator.share({ files: [file] }).catch(function (e) { if (e && e.name !== 'AbortError') download(name); });
-  } else download(name);
+  // Сайт: «Поделиться» → «Сохранить видео»; нативная оболочка: сразу в «Фото» (platform.js).
+  Platform.saveVideo(S.out, outName(), S.outUrl, S.outPath).then(function (r) {
+    if (r === 'saved') toast('Ролик сохранён в «Фото»', 3000);
+  }, function (e) { toast('Не получилось сохранить: ' + errText(e), 10000); });
 });
-function download(name) {
-  var a = document.createElement('a');
-  a.href = S.outUrl; a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-}
 $('back').addEventListener('click', function () { $('result').pause(); show('edit'); renderEdit(); });
 
 // Для отладки из консоли: Reelista.load([file, ...]), Reelista.state
